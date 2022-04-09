@@ -3,7 +3,9 @@ use std::fmt::Write;
 
 fn tonumber(expr: &Value) -> Result<f64, String> {
     match &expr {
-        Value::String(s) => s.parse::<f64>().map_err(|_| format!("{s} is not a number")),
+        Value::String(s) => s
+            .parse::<f64>()
+            .map_err(|_| format!("{} is not a number", s)),
         Value::List(_) => return Err(format!("list is not a number")),
         Value::Number(n) => Ok(*n),
     }
