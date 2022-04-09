@@ -1,0 +1,108 @@
+# brainfuck interpreter in [vurl](https://esolangs.org/wiki/Vurl)
+# 
+# sample programs:
+#   hello world: ++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.
+#   cat:         ,[.[-],]
+
+set code (input)
+set queue (list)
+set instr (list)
+set n 1
+set inputpending 1
+set input ""
+while (lte [n] (len [code]))
+  set c (substr [code] [n] [n])
+  set l (list + - < > . , "[")
+  set cond 0
+  while (gt (len [l]) 0)
+    set cond (or [cond] (eq [c] (pop [l])))
+  end
+  if [cond]
+    push [instr] [c]
+  end
+  if (and (eq [c] ,) [inputpending])
+    set input (input)
+    set inputpending 0
+  end
+  if (eq [c] "[")
+    push [queue] (len [instr])
+  end
+  if (eq [c] "]")
+    set loc (pop [queue])
+    if (eq [loc] "")
+      print (join "mismatched brackets at character " [n])
+      while 1
+      end
+    end
+    push [instr] (join "]" [loc])
+    replace [instr] [loc] (join "[" (len [instr]))
+  end
+  set n (add [n] 1)
+end
+if (gt (len [queue]) 0)
+  print "unexpected end of file"
+  while 1
+  end
+end
+
+set ascii "␀␁␂␃␄␅␆␇␈␉␊␋␌␍␎␏␐␑␒␓␔␕␖␗␘␙␚␛␜␝␞␟ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~␡"
+set currentline ""
+
+set ip 1
+set ptr 1
+set tape (list 0)
+while (lte [ip] (len [instr]))
+  set c (index [instr] [ip])
+  set this (index [tape] [ptr])
+  if (eq [c] +)
+    replace [tape] [ptr] (mod (add [this] 1) 256)
+  end
+  if (eq [c] -)
+    replace [tape] [ptr] (mod (add [this] 255) 256)
+  end
+  if (eq [c] >)
+    set ptr (add [ptr] 1)
+    if (gt [ptr] (len [tape]))
+      push [tape] 0
+    end
+  end
+  if (eq [c] <)
+    set ptr (sub [ptr] 1)
+    if (lt [ptr] 1)
+      print "negative index"
+      while 1
+      end
+    end
+  end
+  if (eq [c] .)
+    if (eq [this] 10)
+      print [currentline]
+      set currentline ""
+    end
+    if (not (eq [this] 10))
+      set char (substr [ascii] (add [this] 1) (add [this] 1))
+      set currentline (join [currentline] [char])
+    end
+  end
+  if (and (eq [c] ,) (gt (len [input]) 0))
+    set char (substr [input] 1 1)
+    set i 1
+    while (lte [i] (len [ascii]))
+      if (eq (substr [ascii] [i] [i]) [char])
+        replace [tape] [ptr] (sub [i] 1)
+      end
+      set i (add [i] 1)
+    end
+    set input (substr [input] 2 (len [input]))
+  end
+  if (and (eq (substr [c] 1 1) "[") (eq [this] 0))
+    set ip (substr [c] 2 (len [c]))
+  end
+  if (and (eq (substr [c] 1 1) "]") (gt [this] 0))
+    set ip (substr [c] 2 (len [c]))
+  end
+  set ip (add [ip] 1)
+end
+print [currentline]
+
+print (join "tape: " [tape])
