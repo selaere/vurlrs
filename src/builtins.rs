@@ -82,6 +82,13 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: Vec<Value>) -> Resul
             println!();
             Value::default()
         }
+        "input" => {
+            let mut buffer = String::new();
+            std::io::stdin()
+                .read_line(&mut buffer)
+                .map_err(|e| format!("error while reading file: {}", e))?;
+            Value::String(buffer)
+        }
         "substr" => match args[..] {
             [ref s, ref x, ref y] => {
                 Value::String(format!("{}", s)[tonumber(x)? as _..=tonumber(y)? as _].to_string())
@@ -125,6 +132,14 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: Vec<Value>) -> Resul
         },
         "gte" => match args[..] {
             [ref x, ref y] => frombool(tonumber(x)? >= tonumber(y)?),
+            _ => return Err("expected 2 arguments".to_string()),
+        },
+        "or" => match args[..] {
+            [ref x, ref y] => frombool(tonumber(x)? != 0f64 || tonumber(y)? != 0f64),
+            _ => return Err("expected 2 arguments".to_string()),
+        },
+        "and" => match args[..] {
+            [ref x, ref y] => frombool(tonumber(x)? != 0f64 && tonumber(y)? != 0f64),
             _ => return Err("expected 2 arguments".to_string()),
         },
         "if" | "while" => match args[..] {
