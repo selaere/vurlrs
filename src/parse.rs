@@ -57,7 +57,7 @@ pub(crate) fn parse(code: &str) -> Vec<Option<Command>> {
         .enumerate()
         .map(|(lineno, line)| {
             let line = line.trim();
-            (line != "" && !line.starts_with("#")).then(|| {
+            (!line.is_empty() && !line.starts_with('#')).then(|| {
                 parse_command(&mut line.trim().chars().peekable(), true)
                     .unwrap_or_else(|e| panic!("syntax error: {} at line {}", e, lineno))
             })
@@ -96,10 +96,12 @@ fn parse_command(
                 let mut s = String::with_capacity(chars.size_hint().0);
                 s.push(fst);
                 loop {
-                    if let Some(' ' | ')') | None = chars.peek().map(|&x| x) {
+                    if let Some(' ' | ')') | None = chars.peek().copied() {
                         break;
                     }
-                    chars.next().map(|x| s.push(x));
+                    if let Some(x) = chars.next() {
+                        s.push(x)
+                    }
                 }
                 args.push(
                     if s.bytes().next() == Some(b'[') && s.bytes().last() == Some(b']') {
@@ -111,7 +113,7 @@ fn parse_command(
             }
         }
     }
-    if args.len() == 0 {
+    if args.is_empty() {
         return Err("empty command".to_string());
     }
     if let Expr::Literal(name) = &args.get(0).ok_or_else(|| "empty command".to_string())? {
@@ -120,7 +122,7 @@ fn parse_command(
             args: args[1..].to_vec(),
         })
     } else {
-        return Err("name must be a string".to_string());
+        Err("name must be a string".to_string())
     }
 }
 
@@ -144,7 +146,7 @@ pub(crate) fn do_code_blocks(cmds: &mut Vec<Option<Command>>) -> Result<(), Stri
             };
         }
     }
-    if stack.len() != 0 {
+    if !stack.is_empty() {
         return Err("``end`` missing".to_string());
     }
     Ok(())

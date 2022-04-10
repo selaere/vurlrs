@@ -15,6 +15,5 @@ fn main() {
     println!("---");
     run::execute(parsed).unwrap_or_else(|x| {
         eprintln!("{}", x);
-        return;
     });
 }

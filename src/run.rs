@@ -60,7 +60,7 @@ impl fmt::Display for RunErrorKind {
                 write!(f, "tried to get index {} of a list of {} items", index, len)
             }
             Self::OrdError(s) => write!(f, "string \"{}\" must be one character long", s),
-            Self::ChrError(i) => write!(f, "{} is not a valid unicode codepoint", i)
+            Self::ChrError(i) => write!(f, "{} is not a valid unicode codepoint", i),
         }
     }
 }
@@ -95,7 +95,7 @@ fn evaluate(state: &mut State, expr: &Expr) -> Result<Value, RunError> {
                 .iter()
                 .map(|x| evaluate(state, x))
                 .collect::<Result<Vec<Value>, _>>()?;
-            builtins::builtins(state, &name, &args[..]).map_err(|x| RunError {
+            builtins::builtins(state, name, &args[..]).map_err(|x| RunError {
                 line: state.lineno,
                 function: name.to_string(),
                 inner: x,
