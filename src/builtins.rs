@@ -13,10 +13,6 @@ fn tonumber(expr: &Value) -> Result<f64, String> {
     }
 }
 
-/*fn tostring(expr: &Value) -> String {
-    format!("{}", expr)
-}*/
-
 fn frombool(boole: bool) -> Value {
     Value::Number(boole as i32 as f64)
 }
@@ -35,16 +31,16 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: Vec<Value>) -> Resul
                 .reduce(|x, y| Ok(x? * y?))
                 .unwrap_or(Ok(1f64))?, // returns 1 if argument list is empty
         ),
-        "sub" => match args[..] {
-            [ref x, ref y] => Value::Number(tonumber(x)? - tonumber(y)?),
+        "sub" => match &args[..] {
+            [x, y] => Value::Number(tonumber(x)? - tonumber(y)?),
             _ => return Err("expected 2 arguments".to_string()),
         },
-        "div" => match args[..] {
-            [ref x, ref y] => Value::Number(tonumber(x)? / tonumber(y)?),
+        "div" => match &args[..] {
+            [x, y] => Value::Number(tonumber(x)? / tonumber(y)?),
             _ => return Err("expected 2 arguments".to_string()),
         },
-        "mod" => match args[..] {
-            [ref x, ref y] => Value::Number(tonumber(x)? % tonumber(y)?),
+        "mod" => match &args[..] {
+            [x, y] => Value::Number(tonumber(x)? % tonumber(y)?),
             _ => return Err("expected 2 arguments".to_string()),
         },
         "join" => {
@@ -58,7 +54,7 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: Vec<Value>) -> Resul
         "list" => Value::List(args),
         "len" => match &args[..] {
             [Value::List(l)] => Value::Number(l.len() as _),
-            [ref l] => Value::Number(format!("{}", l).len() as _),
+            [l] => Value::Number(format!("{}", l).len() as _),
             _ => return Err("expected one list".to_string()),
         },
         "set" => {
@@ -89,14 +85,14 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: Vec<Value>) -> Resul
                 .map_err(|e| format!("error while reading file: {}", e))?;
             Value::String(buffer)
         }
-        "substr" => match args[..] {
-            [ref s, ref x, ref y] => {
+        "substr" => match &args[..] {
+            [s, x, y] => {
                 Value::String(format!("{}", s)[tonumber(x)? as _..=tonumber(y)? as _].to_string())
             }
             _ => return Err("expected 3 arguments".to_string()),
         },
-        "index" => match args[..] {
-            [Value::List(ref l), ref i] => l
+        "index" => match &args[..] {
+            [Value::List(l), i] => l
                 .get(tonumber(i)? as usize + 1)
                 .ok_or_else(|| {
                     format!(
@@ -108,51 +104,51 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: Vec<Value>) -> Resul
                 .clone(),
             _ => return Err("expected 2 arguments".to_string()),
         },
-        "not" => match args[..] {
-            [ref x] => frombool(tonumber(x)? == 0f64),
+        "not" => match &args[..] {
+            [x] => frombool(tonumber(x)? == 0f64),
             _ => return Err("expected 2 arguments".to_string()),
         },
-        "eq" => match args[..] {
-            [Value::List(ref l), Value::List(ref m)] => frombool(l == m),
+        "eq" => match &args[..] {
+            [Value::List(l), Value::List(m)] => frombool(l == m),
             [Value::Number(x), Value::Number(y)] => frombool(x == y),
-            [ref x, ref y] => frombool(format!("{}", x) == format!("{}", y)),
+            [x, y] => frombool(format!("{}", x) == format!("{}", y)),
             _ => return Err("expected 2 arguments".to_string()),
         },
-        "lt" => match args[..] {
-            [ref x, ref y] => frombool(tonumber(x)? < tonumber(y)?),
+        "lt" => match &args[..] {
+            [x, y] => frombool(tonumber(x)? < tonumber(y)?),
             _ => return Err("expected 2 arguments".to_string()),
         },
-        "gt" => match args[..] {
-            [ref x, ref y] => frombool(tonumber(x)? > tonumber(y)?),
+        "gt" => match &args[..] {
+            [x, y] => frombool(tonumber(x)? > tonumber(y)?),
             _ => return Err("expected 2 arguments".to_string()),
         },
-        "lte" => match args[..] {
-            [ref x, ref y] => frombool(tonumber(x)? <= tonumber(y)?),
+        "lte" => match &args[..] {
+            [x, y] => frombool(tonumber(x)? <= tonumber(y)?),
             _ => return Err("expected 2 arguments".to_string()),
         },
-        "gte" => match args[..] {
-            [ref x, ref y] => frombool(tonumber(x)? >= tonumber(y)?),
+        "gte" => match &args[..] {
+            [x, y] => frombool(tonumber(x)? >= tonumber(y)?),
             _ => return Err("expected 2 arguments".to_string()),
         },
-        "or" => match args[..] {
-            [ref x, ref y] => frombool(tonumber(x)? != 0f64 || tonumber(y)? != 0f64),
+        "or" => match &args[..] {
+            [x, y] => frombool(tonumber(x)? != 0f64 || tonumber(y)? != 0f64),
             _ => return Err("expected 2 arguments".to_string()),
         },
-        "and" => match args[..] {
-            [ref x, ref y] => frombool(tonumber(x)? != 0f64 && tonumber(y)? != 0f64),
+        "and" => match &args[..] {
+            [x, y] => frombool(tonumber(x)? != 0f64 && tonumber(y)? != 0f64),
             _ => return Err("expected 2 arguments".to_string()),
         },
-        "if" | "while" => match args[..] {
-            [ref cond, Value::Quoted(Expr::CodeblockStart(end))] => {
+        "if" | "while" => match &args[..] {
+            [cond, Value::Quoted(Expr::CodeblockStart(end))] => {
                 if tonumber(&cond)? == 0f64 {
-                    state.lineno = end;
+                    state.lineno = *end;
                 }
                 Value::default()
             }
             _ => return Err("expected 1 argument".to_string()),
         },
-        "end" => match args[..] {
-            [Value::Quoted(Expr::CodeblockEnd(ref start, ref stmt))] if stmt == "while" => {
+        "end" => match &args[..] {
+            [Value::Quoted(Expr::CodeblockEnd(start, stmt))] if stmt == "while" => {
                 state.lineno = start - 1;
                 Value::default()
             }
