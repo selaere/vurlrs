@@ -17,11 +17,7 @@ fn frombool(boole: bool) -> Value {
     Value::Number(boole as i32 as f64)
 }
 
-pub(crate) fn builtins(
-    state: &mut State,
-    name: &str,
-    mut args: Vec<Value>,
-) -> Result<Value, Error> {
+pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<Value, Error> {
     Ok(match name {
         "add" => Value::Number(
             args.iter()
@@ -54,15 +50,15 @@ pub(crate) fn builtins(
             }
             Value::String(string)
         }
-        "list" => Value::List(args),
+        "list" => Value::List(args.to_vec()),
         "len" => match &args[..] {
             [Value::List(l)] => Value::Number(l.len() as _),
-            [l] => Value::Number(format!("{}", l).len() as _),
+            [l] => Value::Number(format!("{}", l).chars().count() as _),
             _ => return Err(Error::ValueError(1)),
         },
-        "set" => match &mut args[..] {
+        "set" => match &args[..] {
             [Value::String(l), r] => {
-                state.globals.insert(std::mem::take(l), std::mem::take(r));
+                state.globals.insert(l.clone(), r.clone());
                 Value::default()
             }
             _ => return Err(Error::ValueError(2)),
@@ -83,7 +79,14 @@ pub(crate) fn builtins(
         }
         "substr" => match &args[..] {
             [s, x, y] => {
-                Value::String(format!("{}", s)[tonumber(x)? as _..=tonumber(y)? as _].to_string())
+                let (start, stop) = (tonumber(x)? as usize, tonumber(y)? as usize);
+                Value::String(
+                    format!("{}", s)
+                        .chars()
+                        .skip(start - 1)
+                        .take(stop.saturating_sub(start - 1))
+                        .collect(),
+                )
             }
             _ => return Err(Error::ValueError(3)),
         },
@@ -91,7 +94,10 @@ pub(crate) fn builtins(
             [Value::List(l), i] => {
                 let index = tonumber(i)? as usize + 1;
                 l.get(index)
-                    .ok_or_else(|| Error::IndexError(index, l.len()))?
+                    .ok_or_else(|| Error::IndexError {
+                        index,
+                        len: l.len(),
+                    })?
                     .clone()
             }
             _ => return Err(Error::ValueError(2)),
@@ -146,6 +152,31 @@ pub(crate) fn builtins(
             }
             [Value::Quoted(Expr::CodeblockEnd(_, _))] => Value::default(),
             _ => return Err(Error::ValueError(0)),
+        },
+        "_ord" => match &args[..] {
+            [x] => {
+                let string = format!("{}", x);
+                let mut iter = string.chars();
+                let chr = iter
+                    .next()
+                    .ok_or_else(|| Error::OrdError(format!("{}", x)))?;
+                if let Some(_) = iter.next() {
+                    return Err(Error::OrdError(format!("{}", x)));
+                };
+                Value::Number(chr as u32 as f64)
+            }
+            _ => return Err(Error::ValueError(1)),
+        },
+        "_chr" => match &args[..] {
+            [x] => {
+                let num = tonumber(x)? as u32;
+                Value::String(
+                    char::try_from(num)
+                        .map_err(|_| Error::ChrError(num))?
+                        .to_string(),
+                )
+            }
+            _ => return Err(Error::ValueError(1)),
         },
         _ => return Err(Error::NotImplemented),
     })

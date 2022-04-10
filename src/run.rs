@@ -1,6 +1,6 @@
-use std::{collections::HashMap, error::Error, fmt};
 use crate::{builtins, parse};
 use parse::{Command, Expr};
+use std::{collections::HashMap, error::Error, fmt};
 
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) struct State {
@@ -45,7 +45,9 @@ pub(crate) enum RunErrorKind {
     NotImplemented,
     IsNotNumber(Value),
     IOError(std::io::Error),
-    IndexError(usize, usize),
+    IndexError { index: usize, len: usize },
+    OrdError(String),
+    ChrError(u32),
 }
 impl fmt::Display for RunErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -54,9 +56,11 @@ impl fmt::Display for RunErrorKind {
             Self::NotImplemented => write!(f, "command not implemented"),
             Self::IsNotNumber(value) => write!(f, "{} is not a number", value),
             Self::IOError(err) => write!(f, "io error: {}", err),
-            Self::IndexError(i, len) => {
-                write!(f, "tried to access index {} of a list of {} items", i, len)
+            Self::IndexError { index, len } => {
+                write!(f, "tried to get index {} of a list of {} items", index, len)
             }
+            Self::OrdError(s) => write!(f, "string \"{}\" must be one character long", s),
+            Self::ChrError(i) => write!(f, "{} is not a valid unicode codepoint", i)
         }
     }
 }
@@ -90,8 +94,8 @@ fn evaluate(state: &mut State, expr: &Expr) -> Result<Value, RunError> {
             let args = args
                 .iter()
                 .map(|x| evaluate(state, x))
-                .collect::<Result<_, _>>()?;
-            builtins::builtins(state, &name, args).map_err(|x| RunError {
+                .collect::<Result<Vec<Value>, _>>()?;
+            builtins::builtins(state, &name, &args[..]).map_err(|x| RunError {
                 line: state.lineno,
                 function: name.to_string(),
                 inner: x,
