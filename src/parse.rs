@@ -15,6 +15,8 @@ pub(crate) enum Expr {
     Command(Command),
     Literal(String),
     Variable(String),
+    CodeblockStart(usize),
+    CodeblockEnd(usize, String),
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -26,17 +28,12 @@ pub(crate) struct Command {
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Command(cmd) => {
-                fmt::Display::fmt(cmd, f)?;
-            }
-            Self::Literal(s) => {
-                write!(f, "\"{}\"", s.replace('"', r#"\""#))?;
-            }
-            Self::Variable(s) => {
-                write!(f, "[{}]", s)?;
-            }
+            Self::Command(cmd) => write!(f, "{}", cmd),
+            Self::Literal(s) => write!(f, "\"{}\"", s.replace('"', r#"\""#)),
+            Self::Variable(s) => write!(f, "[{}]", s),
+            Self::CodeblockStart(s) => write!(f, "(line {})", s),
+            Self::CodeblockEnd(s, t) => write!(f, "(from {} at {})", t, s),
         }
-        Ok(())
     }
 }
 
@@ -60,14 +57,10 @@ pub(crate) fn parse(code: &str) -> Vec<Option<Command>> {
         .enumerate()
         .map(|(lineno, line)| {
             let line = line.trim();
-            if line == "" || line.starts_with("#") {
-                None
-            } else {
-                Some(
-                    parse_command(&mut line.trim().chars().peekable(), true)
-                        .unwrap_or_else(|e| panic!("syntax error: {} at line {}", e, lineno)),
-                )
-            }
+            (line != "" && !line.starts_with("#")).then(|| {
+                parse_command(&mut line.trim().chars().peekable(), true)
+                    .unwrap_or_else(|e| panic!("syntax error: {} at line {}", e, lineno))
+            })
         })
         .collect()
 }
@@ -129,4 +122,30 @@ fn parse_command(
     } else {
         return Err("name must be a string".to_string());
     }
+}
+
+pub(crate) fn do_code_blocks(cmds: &mut Vec<Option<Command>>) -> Result<(), String> {
+    let mut stack: Vec<usize> = Vec::new();
+    for lineno in 0..cmds.len() {
+        if let Some(ref cmd) = cmds[lineno] {
+            match &cmd.name[..] {
+                "if" | "while" | "define" => stack.push(lineno),
+                "end" => {
+                    // ugly
+                    let start = (stack.pop())
+                        .ok_or_else(|| format!("unexpected ``end`` at line {}", lineno + 1))?;
+                    let startline = cmds[start].as_mut().unwrap();
+                    startline.args.push(Expr::CodeblockStart(lineno));
+                    let name = startline.name.to_owned();
+                    let endline = cmds[lineno].as_mut().unwrap();
+                    endline.args.push(Expr::CodeblockEnd(start, name));
+                }
+                _ => (),
+            };
+        }
+    }
+    if stack.len() != 0 {
+        return Err("``end`` missing".to_string());
+    }
+    Ok(())
 }

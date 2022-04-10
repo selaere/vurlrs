@@ -1,11 +1,12 @@
 use std::{collections::HashMap, fmt};
 
-use crate::{parse, builtins};
+use crate::{builtins, parse};
 use parse::{Command, Expr};
 
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) struct State {
     pub(crate) globals: HashMap<String, Value>,
+    pub(crate) lineno: usize,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -13,6 +14,7 @@ pub(crate) enum Value {
     String(String),
     List(Vec<Value>),
     Number(f64),
+    Quoted(Expr),
 }
 
 impl Default for Value {
@@ -38,6 +40,7 @@ impl fmt::Display for Value {
                 Ok(())
             }
             Value::Number(s) => write!(f, "{}", s),
+            Value::Quoted(expr) => write!(f, "'{}", expr),
         }
     }
 }
@@ -53,16 +56,20 @@ fn evaluate(state: &mut State, expr: &Expr) -> Result<Value, String> {
         }
         Expr::Literal(s) => Ok(Value::String(s.to_owned())),
         Expr::Variable(s) => Ok(state.globals[s].clone()),
+        expr => Ok(Value::Quoted(expr.clone()))
     }
 }
 
-pub(crate) fn execute_lines(mut state: State, lines: Vec<Option<Command>>) -> Result<(), String> {
-    let mut lineno = 0;
-    while lineno < lines.len() {
-        if let Some(cmd) = &lines[lineno] {
+pub(crate) fn execute(lines: Vec<Option<Command>>) -> Result<(), String> {
+    let mut state = State {
+        globals: HashMap::new(),
+        lineno: 0,
+    };
+    while state.lineno < lines.len() {
+        if let Some(cmd) = &lines[state.lineno] {
             evaluate(&mut state, &Expr::Command(cmd.to_owned()))?;
         }
-        lineno += 1;
+        state.lineno += 1;
     }
     Ok(())
 }

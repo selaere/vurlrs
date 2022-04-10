@@ -1,4 +1,16 @@
-print "beeeeee"
-print (join "1+2+3+4+5= " (add 1 2 3 4 5))
-set a (list 1 1 2 3 5 8 13)
-print (index [a] 5)
+set i 1
+while (lte [i] 30)
+    set fb ""
+    if (not (mod [i] 3))
+        set fb (join [fb] Fizz)
+    end
+    if (not (mod [i] 5))
+        set fb (join [fb] Buzz)
+    end
+    if (eq (len [fb]) 0)
+        set fb [i]
+    end
+    print [fb]
+    set i (add [i] 1)
+end
+print done
