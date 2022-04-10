@@ -13,5 +13,8 @@ fn main() {
     do_code_blocks(&mut parsed).expect("ehkgeioujhehj");
     parse::print_parsed(&parsed);
     println!("---");
-    run::execute(parsed).unwrap();
+    run::execute(parsed).unwrap_or_else(|x| {
+        eprintln!("{}", x);
+        return;
+    });
 }

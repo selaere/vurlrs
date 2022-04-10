@@ -1,15 +1,15 @@
 use crate::parse::Expr;
-use crate::run::{State, Value};
+use crate::run::{RunErrorKind as Error, State, Value};
 use std::fmt::Write;
 
-fn tonumber(expr: &Value) -> Result<f64, String> {
+fn tonumber(expr: &Value) -> Result<f64, Error> {
     match &expr {
         Value::String(s) => s
             .parse::<f64>()
-            .map_err(|_| format!("{} is not a number", s)),
-        Value::List(_) => return Err(format!("list is not a number")),
+            .map_err(|_| Error::IsNotNumber(expr.clone())),
+        Value::List(_) => return Err(Error::IsNotNumber(expr.clone())),
         Value::Number(n) => Ok(*n),
-        Value::Quoted(_) => return Err(format!("tried to convert quoted expr")),
+        Value::Quoted(_) => panic!(),
     }
 }
 
@@ -17,7 +17,11 @@ fn frombool(boole: bool) -> Value {
     Value::Number(boole as i32 as f64)
 }
 
-pub(crate) fn builtins(state: &mut State, name: &str, args: Vec<Value>) -> Result<Value, String> {
+pub(crate) fn builtins(
+    state: &mut State,
+    name: &str,
+    mut args: Vec<Value>,
+) -> Result<Value, Error> {
     Ok(match name {
         "add" => Value::Number(
             args.iter()
@@ -33,21 +37,20 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: Vec<Value>) -> Resul
         ),
         "sub" => match &args[..] {
             [x, y] => Value::Number(tonumber(x)? - tonumber(y)?),
-            _ => return Err("expected 2 arguments".to_string()),
+            _ => return Err(Error::ValueError(2)),
         },
         "div" => match &args[..] {
             [x, y] => Value::Number(tonumber(x)? / tonumber(y)?),
-            _ => return Err("expected 2 arguments".to_string()),
+            _ => return Err(Error::ValueError(2)),
         },
         "mod" => match &args[..] {
             [x, y] => Value::Number(tonumber(x)? % tonumber(y)?),
-            _ => return Err("expected 2 arguments".to_string()),
+            _ => return Err(Error::ValueError(2)),
         },
         "join" => {
             let mut string = String::new();
             for item in args {
-                write!(&mut string, "{}", item)
-                    .map_err(|_| "error converting to string".to_string())?;
+                write!(&mut string, "{}", item).unwrap();
             }
             Value::String(string)
         }
@@ -55,22 +58,15 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: Vec<Value>) -> Resul
         "len" => match &args[..] {
             [Value::List(l)] => Value::Number(l.len() as _),
             [l] => Value::Number(format!("{}", l).len() as _),
-            _ => return Err("expected one list".to_string()),
+            _ => return Err(Error::ValueError(1)),
         },
-        "set" => {
-            if args.len() != 2 {
-                return Err("expected 2 arguments".to_string());
-            } else {
-                let mut iter = args.into_iter();
-                let (l, r) = (iter.next().unwrap(), iter.next().unwrap());
-                if let Value::String(l) = l {
-                    state.globals.insert(l, r);
-                    Value::default()
-                } else {
-                    return Err("variable names must be strings".to_string());
-                }
+        "set" => match &mut args[..] {
+            [Value::String(l), r] => {
+                state.globals.insert(std::mem::take(l), std::mem::take(r));
+                Value::default()
             }
-        }
+            _ => return Err(Error::ValueError(2)),
+        },
         "print" => {
             for i in args {
                 print!("{}", i);
@@ -82,61 +78,57 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: Vec<Value>) -> Resul
             let mut buffer = String::new();
             std::io::stdin()
                 .read_line(&mut buffer)
-                .map_err(|e| format!("error while reading file: {}", e))?;
+                .map_err(|e| Error::IOError(e))?;
             Value::String(buffer)
         }
         "substr" => match &args[..] {
             [s, x, y] => {
                 Value::String(format!("{}", s)[tonumber(x)? as _..=tonumber(y)? as _].to_string())
             }
-            _ => return Err("expected 3 arguments".to_string()),
+            _ => return Err(Error::ValueError(3)),
         },
         "index" => match &args[..] {
-            [Value::List(l), i] => l
-                .get(tonumber(i)? as usize + 1)
-                .ok_or_else(|| {
-                    format!(
-                        "tried to get index number {} of a list of length {}",
-                        i,
-                        l.len()
-                    )
-                })?
-                .clone(),
-            _ => return Err("expected 2 arguments".to_string()),
+            [Value::List(l), i] => {
+                let index = tonumber(i)? as usize + 1;
+                l.get(index)
+                    .ok_or_else(|| Error::IndexError(index, l.len()))?
+                    .clone()
+            }
+            _ => return Err(Error::ValueError(2)),
         },
         "not" => match &args[..] {
             [x] => frombool(tonumber(x)? == 0f64),
-            _ => return Err("expected 2 arguments".to_string()),
+            _ => return Err(Error::ValueError(2)),
         },
         "eq" => match &args[..] {
             [Value::List(l), Value::List(m)] => frombool(l == m),
             [Value::Number(x), Value::Number(y)] => frombool(x == y),
             [x, y] => frombool(format!("{}", x) == format!("{}", y)),
-            _ => return Err("expected 2 arguments".to_string()),
+            _ => return Err(Error::ValueError(2)),
         },
         "lt" => match &args[..] {
             [x, y] => frombool(tonumber(x)? < tonumber(y)?),
-            _ => return Err("expected 2 arguments".to_string()),
+            _ => return Err(Error::ValueError(2)),
         },
         "gt" => match &args[..] {
             [x, y] => frombool(tonumber(x)? > tonumber(y)?),
-            _ => return Err("expected 2 arguments".to_string()),
+            _ => return Err(Error::ValueError(2)),
         },
         "lte" => match &args[..] {
             [x, y] => frombool(tonumber(x)? <= tonumber(y)?),
-            _ => return Err("expected 2 arguments".to_string()),
+            _ => return Err(Error::ValueError(2)),
         },
         "gte" => match &args[..] {
             [x, y] => frombool(tonumber(x)? >= tonumber(y)?),
-            _ => return Err("expected 2 arguments".to_string()),
+            _ => return Err(Error::ValueError(2)),
         },
         "or" => match &args[..] {
             [x, y] => frombool(tonumber(x)? != 0f64 || tonumber(y)? != 0f64),
-            _ => return Err("expected 2 arguments".to_string()),
+            _ => return Err(Error::ValueError(2)),
         },
         "and" => match &args[..] {
             [x, y] => frombool(tonumber(x)? != 0f64 && tonumber(y)? != 0f64),
-            _ => return Err("expected 2 arguments".to_string()),
+            _ => return Err(Error::ValueError(2)),
         },
         "if" | "while" => match &args[..] {
             [cond, Value::Quoted(Expr::CodeblockStart(end))] => {
@@ -145,7 +137,7 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: Vec<Value>) -> Resul
                 }
                 Value::default()
             }
-            _ => return Err("expected 1 argument".to_string()),
+            _ => return Err(Error::ValueError(1)),
         },
         "end" => match &args[..] {
             [Value::Quoted(Expr::CodeblockEnd(start, stmt))] if stmt == "while" => {
@@ -153,8 +145,8 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: Vec<Value>) -> Resul
                 Value::default()
             }
             [Value::Quoted(Expr::CodeblockEnd(_, _))] => Value::default(),
-            _ => return Err("expected 0 arguments".to_string()),
+            _ => return Err(Error::ValueError(0)),
         },
-        s => return Err(format!("{} not implemented", s)),
+        _ => return Err(Error::NotImplemented),
     })
 }
