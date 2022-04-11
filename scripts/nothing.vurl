@@ -1,1 +1,3 @@
 print (_ord (substr ä🐝Bzzt 2 2))
+print (eq hello hello)
+print [yourmom]

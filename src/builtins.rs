@@ -1,6 +1,7 @@
 use crate::parse::Expr;
 use crate::run::{RunErrorKind as Error, State, Value};
 use std::fmt::Write;
+use std::rc::Rc;
 
 fn tonumber(expr: &Value) -> Result<f64, Error> {
     match &expr {
@@ -10,6 +11,13 @@ fn tonumber(expr: &Value) -> Result<f64, Error> {
         Value::List(_) => Err(Error::IsNotNumber(expr.clone())),
         Value::Number(n) => Ok(*n),
         Value::Quoted(_) => panic!(),
+    }
+}
+
+fn tostr(expr: &Value) -> Rc<str> {
+    match &expr {
+        Value::String(s) => Rc::clone(s),
+        other => Rc::from(format!("{}", other).as_str()),
     }
 }
 
@@ -48,17 +56,17 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
             for item in args {
                 write!(&mut string, "{}", item).unwrap();
             }
-            Value::String(string)
+            Value::String(Rc::from(string))
         }
-        "list" => Value::List(args.to_vec()),
+        "list" => Value::List(Rc::from(args)),
         "len" => match args {
             [Value::List(l)] => Value::Number(l.len() as _),
-            [l] => Value::Number(format!("{}", l).chars().count() as _),
+            [l] => Value::Number(tostr(l).chars().count() as _),
             _ => return Err(Error::ValueError(1)),
         },
         "set" => match args {
             [Value::String(l), r] => {
-                state.globals.insert(l.clone(), r.clone());
+                state.globals.insert(Rc::clone(l), r.clone());
                 Value::default()
             }
             _ => return Err(Error::ValueError(2)),
@@ -75,18 +83,18 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
             std::io::stdin()
                 .read_line(&mut buffer)
                 .map_err(Error::IOError)?;
-            Value::String(buffer)
+            Value::String(Rc::from(buffer))
         }
         "substr" => match args {
             [s, x, y] => {
                 let (start, stop) = (tonumber(x)? as usize, tonumber(y)? as usize);
-                Value::String(
-                    format!("{}", s)
+                Value::String(Rc::from(
+                    tostr(s)
                         .chars()
                         .skip(start - 1)
                         .take(stop.saturating_sub(start - 1))
-                        .collect(),
-                )
+                        .collect::<String>(),
+                ))
             }
             _ => return Err(Error::ValueError(3)),
         },
@@ -109,7 +117,7 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
         "eq" => match args {
             [Value::List(l), Value::List(m)] => frombool(l == m),
             [Value::Number(x), Value::Number(y)] => frombool(x == y),
-            [x, y] => frombool(format!("{}", x) == format!("{}", y)),
+            [x, y] => frombool(tostr(x) == tostr(y)),
             _ => return Err(Error::ValueError(2)),
         },
         "lt" => match args {
@@ -155,13 +163,13 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
         },
         "_ord" => match args {
             [x] => {
-                let string = format!("{}", x);
+                let string = tostr(x);
                 let mut iter = string.chars();
                 let chr = iter
                     .next()
-                    .ok_or_else(|| Error::OrdError(format!("{}", x)))?;
+                    .ok_or_else(|| Error::OrdError(Rc::clone(&string)))?;
                 if iter.next().is_some() {
-                    return Err(Error::OrdError(format!("{}", x)));
+                    return Err(Error::OrdError(Rc::clone(&string)));
                 };
                 Value::Number(chr as u32 as f64)
             }
@@ -170,11 +178,11 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
         "_chr" => match args {
             [x] => {
                 let num = tonumber(x)? as u32;
-                Value::String(
+                Value::String(Rc::from(
                     char::try_from(num)
                         .map_err(|_| Error::ChrError(num))?
                         .to_string(),
-                )
+                ))
             }
             _ => return Err(Error::ValueError(1)),
         },

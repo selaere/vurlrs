@@ -1,17 +1,17 @@
 use crate::{builtins, parse};
 use parse::{Command, Expr};
-use std::{collections::HashMap, error::Error, fmt};
+use std::{collections::HashMap, error::Error, fmt, rc::Rc};
 
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) struct State {
-    pub(crate) globals: HashMap<String, Value>,
+    pub(crate) globals: HashMap<Rc<str>, Value>,
     pub(crate) lineno: usize,
 }
 
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) enum Value {
-    String(String),
-    List(Vec<Value>),
+    String(Rc<str>),
+    List(Rc<[Value]>),
     Number(f64),
     Quoted(Expr),
 }
@@ -25,7 +25,7 @@ impl Default for Value {
 #[derive(Debug)]
 pub(crate) struct RunError {
     line: usize,
-    function: String,
+    function: Rc<str>,
     inner: RunErrorKind,
 }
 impl fmt::Display for RunError {
@@ -43,10 +43,11 @@ impl Error for RunError {}
 pub(crate) enum RunErrorKind {
     ValueError(i32),
     NotImplemented,
+    NameError(Rc<str>),
     IsNotNumber(Value),
     IOError(std::io::Error),
     IndexError { index: usize, len: usize },
-    OrdError(String),
+    OrdError(Rc<str>),
     ChrError(u32),
 }
 impl fmt::Display for RunErrorKind {
@@ -54,6 +55,7 @@ impl fmt::Display for RunErrorKind {
         match self {
             Self::ValueError(num) => write!(f, "expected {} arguments", num),
             Self::NotImplemented => write!(f, "command not implemented"),
+            Self::NameError(name) => write!(f, "variable [{}] is undefined", name),
             Self::IsNotNumber(value) => write!(f, "{} is not a number", value),
             Self::IOError(err) => write!(f, "io error: {}", err),
             Self::IndexError { index, len } => {
@@ -91,18 +93,21 @@ impl fmt::Display for Value {
 fn evaluate(state: &mut State, expr: &Expr) -> Result<Value, RunError> {
     match expr {
         Expr::Command(Command { name, args }) => {
-            let args = args
-                .iter()
+            let args = (args.iter())
                 .map(|x| evaluate(state, x))
                 .collect::<Result<Vec<Value>, _>>()?;
             builtins::builtins(state, name, &args[..]).map_err(|x| RunError {
                 line: state.lineno,
-                function: name.to_string(),
+                function: Rc::from(name.as_str()),
                 inner: x,
             })
         }
-        Expr::Literal(s) => Ok(Value::String(s.to_owned())),
-        Expr::Variable(s) => Ok(state.globals[s].clone()),
+        Expr::Literal(s) => Ok(Value::String(Rc::from(s.as_str()))),
+        Expr::Variable(s) => (state.globals.get(s.as_str()).cloned()).ok_or_else(|| RunError {
+            line: state.lineno,
+            function: Rc::from("n/a"),
+            inner: RunErrorKind::NameError(Rc::from(s.as_str())),
+        }),
         expr => Ok(Value::Quoted(expr.clone())),
     }
 }
