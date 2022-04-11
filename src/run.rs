@@ -1,6 +1,6 @@
 use crate::{builtins, parse};
 use parse::{Command, Expr};
-use std::{collections::HashMap, error::Error, fmt, rc::Rc};
+use std::{collections::HashMap, error::Error, fmt, rc::Rc, cell::RefCell};
 
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) struct State {
@@ -11,7 +11,7 @@ pub(crate) struct State {
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) enum Value {
     String(Rc<str>),
-    List(Rc<[Value]>),
+    List(Rc<RefCell<Vec<Value>>>),
     Number(f64),
     Quoted(Expr),
 }
@@ -46,7 +46,9 @@ pub(crate) enum RunErrorKind {
     NameError(Rc<str>),
     IsNotNumber(Value),
     IOError(std::io::Error),
+    ZeroIndex,
     IndexError { index: usize, len: usize },
+    PopError,
     OrdError(Rc<str>),
     ChrError(u32),
 }
@@ -58,9 +60,11 @@ impl fmt::Display for RunErrorKind {
             Self::NameError(name) => write!(f, "variable [{}] is undefined", name),
             Self::IsNotNumber(value) => write!(f, "{} is not a number", value),
             Self::IOError(err) => write!(f, "io error: {}", err),
+            Self::ZeroIndex => write!(f, "vurl is one-indexed, sadly"),
             Self::IndexError { index, len } => {
-                write!(f, "tried to get index {} of a list of {} items", index, len)
+                write!(f, "tried to use index {} of a list of {} items", index, len)
             }
+            Self::PopError => write!(f, "cannot pop from an empty list"),
             Self::OrdError(s) => write!(f, "string \"{}\" must be one character long", s),
             Self::ChrError(i) => write!(f, "{} is not a valid unicode codepoint", i),
         }
@@ -73,7 +77,8 @@ impl fmt::Display for Value {
         match self {
             Value::String(s) => write!(f, "{}", s),
             Value::List(v) => {
-                let mut iter = v.iter();
+                let borrow = v.borrow();
+                let mut iter = borrow.iter();
                 write!(f, "(")?;
                 if let Some(x) = iter.next() {
                     write!(f, "{}", x)?

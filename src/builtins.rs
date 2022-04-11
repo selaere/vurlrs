@@ -1,21 +1,22 @@
 use crate::parse::Expr;
 use crate::run::{RunErrorKind as Error, State, Value};
+use std::cell::RefCell;
 use std::fmt::Write;
 use std::rc::Rc;
 
-fn tonumber(expr: &Value) -> Result<f64, Error> {
-    match &expr {
+fn tonumber(val: &Value) -> Result<f64, Error> {
+    match &val {
         Value::String(s) => s
             .parse::<f64>()
-            .map_err(|_| Error::IsNotNumber(expr.clone())),
-        Value::List(_) => Err(Error::IsNotNumber(expr.clone())),
+            .map_err(|_| Error::IsNotNumber(val.clone())),
+        Value::List(_) => Err(Error::IsNotNumber(val.clone())),
         Value::Number(n) => Ok(*n),
         Value::Quoted(_) => panic!(),
     }
 }
 
-fn tostr(expr: &Value) -> Rc<str> {
-    match &expr {
+fn tostr(val: &Value) -> Rc<str> {
+    match &val {
         Value::String(s) => Rc::clone(s),
         other => Rc::from(format!("{}", other).as_str()),
     }
@@ -23,6 +24,10 @@ fn tostr(expr: &Value) -> Rc<str> {
 
 fn frombool(boole: bool) -> Value {
     Value::Number(boole as i32 as f64)
+}
+
+fn toindex(val: &Value) -> Result<usize, Error> {
+    (tonumber(val)? as usize).checked_sub(1).ok_or(Error::ZeroIndex)
 }
 
 pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<Value, Error> {
@@ -58,9 +63,9 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
             }
             Value::String(Rc::from(string))
         }
-        "list" => Value::List(Rc::from(args)),
+        "list" => Value::List(Rc::from(RefCell::from(args.to_vec()))),
         "len" => match args {
-            [Value::List(l)] => Value::Number(l.len() as _),
+            [Value::List(l)] => Value::Number(l.borrow().len() as _),
             [l] => Value::Number(tostr(l).chars().count() as _),
             _ => return Err(Error::ValueError(1)),
         },
@@ -97,18 +102,6 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
                 ))
             }
             _ => return Err(Error::ValueError(3)),
-        },
-        "index" => match args {
-            [Value::List(l), i] => {
-                let index = tonumber(i)? as usize + 1;
-                l.get(index)
-                    .ok_or_else(|| Error::IndexError {
-                        index,
-                        len: l.len(),
-                    })?
-                    .clone()
-            }
-            _ => return Err(Error::ValueError(2)),
         },
         "not" => match args {
             [x] => frombool(tonumber(x)? == 0f64),
@@ -183,6 +176,62 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
                         .map_err(|_| Error::ChrError(num))?
                         .to_string(),
                 ))
+            }
+            _ => return Err(Error::ValueError(1)),
+        },
+        "index" => match args {
+            [Value::List(l), i] => {
+                let index = toindex(i)?;
+                let list = l.borrow();
+                list.get(index)
+                    .ok_or_else(|| Error::IndexError {
+                        index,
+                        len: list.len(),
+                    })?
+                    .clone()
+            }
+            _ => return Err(Error::ValueError(2)),
+        },
+        "push" => match args {
+            [Value::List(l), i] => {
+                let mut borrow = l.borrow_mut();
+                borrow.push(i.clone());
+                Value::default()
+            }
+            _ => return Err(Error::ValueError(2)),
+        },
+        "pop" => match args {
+            [Value::List(l)] => {
+                let mut borrow = l.borrow_mut();
+                borrow.pop().ok_or(Error::PopError)? // this is fine apparently??
+            }
+            _ => return Err(Error::ValueError(1)),
+        },
+        "insert" => match args {
+            [Value::List(l), i, v] => {
+                let mut borrow = l.borrow_mut();
+                let index = borrow.len().min(toindex(i)?);
+                borrow.insert(index, v.clone());
+                Value::default()
+            }
+            _ => return Err(Error::ValueError(1)),
+        },
+        "remove" => match args {
+            [Value::List(l), i] => {
+                let mut borrow = l.borrow_mut();
+                let len = borrow.len();
+                let index = len.min(toindex(i)?);
+                borrow.remove(index)
+            }
+            _ => return Err(Error::ValueError(1)),
+        },
+        "replace" => match args {
+            [Value::List(l), i, v] => {
+                let mut borrow = l.borrow_mut();
+                let index = toindex(i)?;
+                let len = borrow.len();
+                *borrow.get_mut(index).ok_or(Error::IndexError{index, len})? = v.clone();
+                Value::default()
             }
             _ => return Err(Error::ValueError(1)),
         },

@@ -1,3 +1,5 @@
-print (_ord (substr ä🐝Bzzt 2 2))
-print (eq hello hello)
-print [yourmom]
+set list (list 1 2 3)
+
+push [list] 4
+push [list] (add (index [list] (len [list])) 1)
+print [list]
