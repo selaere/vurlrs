@@ -22,7 +22,7 @@ pub enum Value {
     String(Rc<str>),
     List(Rc<RefCell<Vec<Value>>>),
     Number(f64),
-    Quoted(Expr),
+    Lineptr(usize),
 }
 
 impl Default for Value {
@@ -68,7 +68,14 @@ pub enum RunErrorKind {
 impl fmt::Display for RunErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ValueError(num) => write!(f, "expected {} arguments", num),
+            Self::Wrap(e) => write!(f, "{}", e),
+            Self::Return(v) => write!(f, "value {} returned outside function", v),
+            Self::ValueError(num) => write!(
+                f,
+                "expected {} argument{}",
+                num,
+                if *num == 1 { "" } else { "s" }
+            ),
             Self::NotImplemented => write!(f, "command not implemented"),
             Self::NameError(name) => write!(f, "variable [{}] is undefined", name),
             Self::FuncDefined(name) => write!(f, "function {} is already defined", name),
@@ -82,9 +89,6 @@ impl fmt::Display for RunErrorKind {
             Self::PopError => write!(f, "cannot pop from an empty list"),
             Self::OrdError(s) => write!(f, "string \"{}\" must be one character long", s),
             Self::ChrError(i) => write!(f, "{} is not a valid unicode codepoint", i),
-            Self::Wrap(e) => write!(f, "{}", e),
-            Self::Return(v) => write!(f, "value {} returned outside function", v),
-            // Self::Return shouldnt happen but
         }
     }
 }
@@ -108,7 +112,7 @@ impl fmt::Display for Value {
                 Ok(())
             }
             Value::Number(s) => write!(f, "{}", s),
-            Value::Quoted(expr) => write!(f, "'{}", expr),
+            Value::Lineptr(lineno) => write!(f, "(line {})", lineno),
         }
     }
 }
@@ -138,7 +142,7 @@ fn evaluate(state: &mut State, expr: &Expr) -> Result<Value, RunError> {
             function: Rc::from("n/a"),
             inner: RunErrorKind::NameError(Rc::from(s.as_str())),
         }),
-        expr => Ok(Value::Quoted(expr.clone())),
+        Expr::Lineptr(l) => Ok(Value::Lineptr(*l)),
     }
 }
 

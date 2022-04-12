@@ -1,4 +1,3 @@
-use crate::parse::Expr;
 use crate::run::{self, Function, RunErrorKind as Error, State, Value};
 use std::cell::{RefCell, RefMut};
 use std::fmt::Write;
@@ -11,7 +10,7 @@ fn tonumber(val: &Value) -> Result<f64, Error> {
             .map_err(|_| Error::IsNotNumber(val.clone())),
         Value::List(_) => Err(Error::IsNotNumber(val.clone())),
         Value::Number(n) => Ok(*n),
-        Value::Quoted(_) => panic!(),
+        Value::Lineptr(_) => panic!(),
     }
 }
 
@@ -39,7 +38,9 @@ fn tolist(val: &Value) -> Result<RefMut<Vec<Value>>, Error> {
     }
 }
 
-pub fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<Value, Error> {
+pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Result<Value, Error> {
+    let mut args = args;
+
     // yes i have to specify how many arguments there are. i could use ${count} but that's unstable
     macro_rules! command {
         ($num:literal $($var:ident)* => $code:expr) => {
@@ -48,6 +49,69 @@ pub fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<Value, 
                 _ => return Err(Error::ValueError($num)),
             }
         };
+    }
+
+    if let Some(Value::Lineptr(lineptr)) = args.last() {
+        args = &args[..args.len() - 1];
+        return Ok(match name {
+            "end _func" | "end define" => match args {
+                [] => return Err(Error::Return(Value::default())),
+                [v] => return Err(Error::Return(v.clone())),
+                _ => return Err(Error::ValueError(1)),
+            },
+            "end while" => command!(0 => {
+                state.lineno = lineptr - 1;
+                Value::default()
+            }),
+            "end if" => command!(0 => Value::default()),
+            "if" | "while" => command!(1 cond => {
+                if tonumber(cond)? == 0f64 {
+                    state.lineno = *lineptr;
+                }
+                Value::default()
+            }),
+            "_func" => {
+                if args.len() <= 1 {
+                    return Err(Error::ValueError(1));
+                }
+                let name = &args[0];
+                let arguments = &args[1..].iter().map(tostr).collect::<Vec<_>>();
+                let arguments = arguments
+                    .first()
+                    .map_or(false, |x| !str::eq(x, "...")) // ?????
+                    .then(|| Rc::from(&arguments[..]));
+                if (state.functions)
+                    .insert(
+                        tostr(name),
+                        Function {
+                            lineno: state.lineno + 1,
+                            arguments,
+                        },
+                    )
+                    .is_some()
+                {
+                    return Err(Error::FuncDefined(tostr(name)));
+                }
+                state.lineno = *lineptr;
+                Value::default()
+            }
+            "define" => command!(1 name => {
+                if (state.functions)
+                    .insert(
+                        Rc::from("call ".to_string() + &tostr(name)),
+                        Function {
+                            lineno: state.lineno + 1,
+                            arguments: None,
+                        },
+                    ).is_some()
+                {
+                    return Err(Error::FuncDefined(tostr(name)));
+                };
+                state.lineno = *lineptr;
+                Value::default()
+            }),
+            name => run::execute_function(state, name, args)?,
+        });
     }
 
     Ok(match name {
@@ -74,11 +138,10 @@ pub fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<Value, 
             Value::String(Rc::from(string))
         }
         "list" => Value::List(Rc::from(RefCell::from(args.to_vec()))),
-        "len" => match args {
-            [Value::List(l)] => Value::Number(l.borrow().len() as _),
-            [l] => Value::Number(tostr(l).chars().count() as _),
-            _ => return Err(Error::ValueError(1)),
-        },
+        "len" => command!( 1 i => match i {
+            Value::List(l) => Value::Number(l.borrow().len() as _),
+            l => Value::Number(tostr(l).chars().count() as _),
+        }),
         "set" => command!(2 l r => {
             let l = tostr(l);
             if l.starts_with('%') {
@@ -112,12 +175,11 @@ pub fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<Value, 
             Value::String(Rc::from(buffer))
         }),
         "substr" => command!(3 s x y => {
-            let (start, stop) = (tonumber(x)? as usize, tonumber(y)? as usize);
+            let (start, stop) = (toindex(x)?, toindex(y)? + 1);
             Value::String(Rc::from(
-                tostr(s)
-                    .chars()
-                    .skip(start - 1)
-                    .take(stop.saturating_sub(start - 1))
+                tostr(s).chars()
+                    .skip(start)
+                    .take(stop.saturating_sub(start))
                     .collect::<String>(),
             ))
         }),
@@ -134,34 +196,10 @@ pub fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<Value, 
         "gte" => command!(2 x y => frombool(tonumber(x)? >= tonumber(y)?)),
         "or" => command!(2 x y => frombool(tonumber(x)? != 0f64 || tonumber(y)? != 0f64)),
         "and" => command!(2 x y => frombool(tonumber(x)? != 0f64 && tonumber(y)? != 0f64)),
-        "if" | "while" => match args {
-            [cond, Value::Quoted(Expr::CodeblockStart(end))] => {
-                if tonumber(cond)? == 0f64 {
-                    state.lineno = *end;
-                }
-                Value::default()
-            }
-            _ => return Err(Error::ValueError(1)),
-        },
-        "end" => match args {
-            [Value::Quoted(Expr::CodeblockEnd(_, stmt))] if stmt == "_func" || stmt == "define" => {
-                return Err(Error::Return(Value::default()))
-            }
-            [v, Value::Quoted(Expr::CodeblockEnd(_, stmt))] if stmt == "_func" => {
-                return Err(Error::Return(v.clone()))
-            }
-            [Value::Quoted(Expr::CodeblockEnd(start, stmt))] if stmt == "while" => {
-                state.lineno = start - 1;
-                Value::default()
-            }
-            [Value::Quoted(Expr::CodeblockEnd(_, _))] => Value::default(),
-            _ => return Err(Error::ValueError(0)),
-        },
         "_ord" => command!(1 x => {
             let string = tostr(x);
             let mut iter = string.chars();
-            let chr = (iter.next())
-                .ok_or_else(|| Error::OrdError(Rc::clone(&string)))?;
+            let chr = iter.next().ok_or_else(|| Error::OrdError(Rc::clone(&string)))?;
             if iter.next().is_some() {
                 return Err(Error::OrdError(Rc::clone(&string)));
             };
@@ -207,60 +245,11 @@ pub fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<Value, 
             *borrow.get_mut(index).ok_or(Error::IndexError(index, len))? = v.clone();
             Value::default()
         }),
-        "_func" => {
-            if args.len() <= 1 {
-                return Err(Error::ValueError(1));
-            }
-            let name = &args[0];
-            let arguments = &args[1..args.len() - 1]
-                .iter()
-                .map(tostr)
-                .collect::<Vec<_>>();
-            let arguments = arguments
-                .first()
-                .map_or(false, |x| !str::eq(x, "...")) // ?????
-                .then(|| Rc::from(&arguments[..]));
-            if (state.functions)
-                .insert(
-                    tostr(name),
-                    Function {
-                        lineno: state.lineno + 1,
-                        arguments,
-                    },
-                )
-                .is_some()
-            {
-                return Err(Error::FuncDefined(tostr(name)));
-            }
-            state.lineno = match args[args.len() - 1] {
-                Value::Quoted(Expr::CodeblockStart(lineno)) => lineno,
-                _ => return Err(Error::ValueError(1)),
-            };
-            Value::default()
-        }
-        "define" => match args {
-            [name, Value::Quoted(Expr::CodeblockStart(lineno))] => {
-                if (state.functions)
-                    .insert(
-                        Rc::from("call ".to_string() + &tostr(name)),
-                        Function {
-                            lineno: state.lineno + 1,
-                            arguments: None,
-                        },
-                    )
-                    .is_some()
-                {
-                    return Err(Error::FuncDefined(tostr(name)));
-                };
-                state.lineno = *lineno;
-                Value::default()
-            }
-            _ => return Err(Error::ValueError(1)),
-        },
-        "call" => match args {
-            [name] => run::execute_function(state, &("call ".to_string() + &tostr(name)), &[])?,
-            _ => return Err(Error::ValueError(1)),
-        },
+        "call" => command!(1 name => run::execute_function(
+            state,
+            &("call ".to_string() + &tostr(name)),
+            &[],
+        )?),
         name => run::execute_function(state, name, args)?,
     })
 }

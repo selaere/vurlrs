@@ -16,8 +16,7 @@ pub enum Expr {
     Literal(String),
     Number(f64),
     Variable(String),
-    CodeblockStart(usize),
-    CodeblockEnd(usize, String),
+    Lineptr(usize),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -33,8 +32,7 @@ impl fmt::Display for Expr {
             Self::Literal(s) => write!(f, "\"{}\"", s.replace('"', r#"\""#)),
             Self::Number(n) => write!(f, "{}", n),
             Self::Variable(s) => write!(f, "[{}]", s),
-            Self::CodeblockStart(s) => write!(f, "(line {})", s),
-            Self::CodeblockEnd(s, t) => write!(f, "(from {} at {})", t, s),
+            Self::Lineptr(s) => write!(f, "(line {})", s),
         }
     }
 }
@@ -141,10 +139,11 @@ pub fn do_code_blocks(cmds: &mut Vec<Option<Command>>) -> Result<(), String> {
                     let start = (stack.pop())
                         .ok_or_else(|| format!("unexpected ``end`` at line {}", lineno + 1))?;
                     let startline = cmds[start].as_mut().unwrap();
-                    startline.args.push(Expr::CodeblockStart(lineno));
+                    startline.args.push(Expr::Lineptr(lineno));
                     let name = startline.name.to_owned();
                     let endline = cmds[lineno].as_mut().unwrap();
-                    endline.args.push(Expr::CodeblockEnd(start, name));
+                    endline.args.push(Expr::Lineptr(start));
+                    endline.name = "end ".to_string() + &name;
                 }
                 _ => (),
             };

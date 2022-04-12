@@ -45,8 +45,8 @@ if (gt (len [queue]) 0)
   end
 end
 
-set ascii "␀␁␂␃␄␅␆␇␈␉␊␋␌␍␎␏␐␑␒␓␔␕␖␗␘␙␚␛␜␝␞␟ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~␡"
-set currentline ""
+# set ascii "␀␁␂␃␄␅␆␇␈␉␊␋␌␍␎␏␐␑␒␓␔␕␖␗␘␙␚␛␜␝␞␟ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~␡"
+# set currentline ""
 
 set ip 1
 set ptr 1
@@ -83,7 +83,7 @@ while (lte [ip] (len [instr]))
     #   set char (substr [ascii] (add [this] 1) (add [this] 1))
     #   set currentline (join [currentline] [char])
     # end
-    _printraw (substr [ascii] (add [this] 1) (add [this] 1))
+    _printraw (_chr [this])
   end
   if (and (eq [c] ,) (gt (len [input]) 0))
     set char (substr [input] 1 1)
