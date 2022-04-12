@@ -1,5 +1,5 @@
 use crate::parse::Expr;
-use crate::run::{RunErrorKind as Error, State, Value};
+use crate::run::{self, Function, RunErrorKind as Error, State, Value};
 use std::cell::RefCell;
 use std::fmt::Write;
 use std::rc::Rc;
@@ -16,7 +16,7 @@ fn tonumber(val: &Value) -> Result<f64, Error> {
 }
 
 fn tostr(val: &Value) -> Rc<str> {
-    match &val {
+    match val {
         Value::String(s) => Rc::clone(s),
         other => Rc::from(format!("{}", other).as_str()),
     }
@@ -27,7 +27,9 @@ fn frombool(boole: bool) -> Value {
 }
 
 fn toindex(val: &Value) -> Result<usize, Error> {
-    (tonumber(val)? as usize).checked_sub(1).ok_or(Error::ZeroIndex)
+    (tonumber(val)? as usize)
+        .checked_sub(1)
+        .ok_or(Error::ZeroIndex)
 }
 
 pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<Value, Error> {
@@ -71,16 +73,23 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
         },
         "set" => match args {
             [Value::String(l), r] => {
-                state.globals.insert(Rc::clone(l), r.clone());
+                if l.starts_with('%') {
+                    state.locals.insert(Rc::clone(l), r.clone());
+                } else {
+                    state.globals.insert(Rc::clone(l), r.clone());
+                }
                 Value::default()
             }
             _ => return Err(Error::ValueError(2)),
         },
         "print" => {
-            for i in args {
-                print!("{}", i);
+            for (n, v) in args.iter().enumerate() {
+                if n == args.len() - 1 {
+                    println!("{}", v);
+                } else {
+                    print!("{} ", v);
+                }
             }
-            println!();
             Value::default()
         }
         "input" => {
@@ -107,12 +116,12 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
             [x] => frombool(tonumber(x)? == 0f64),
             _ => return Err(Error::ValueError(2)),
         },
-        "eq" => match args {
-            [Value::List(l), Value::List(m)] => frombool(l == m),
-            [Value::Number(x), Value::Number(y)] => frombool(x == y),
-            [x, y] => frombool(tostr(x) == tostr(y)),
+        "eq" => frombool(match args {
+            [Value::List(l), Value::List(m)] => l == m,
+            [Value::Number(x), Value::Number(y)] => x == y,
+            [x, y] => tostr(x) == tostr(y),
             _ => return Err(Error::ValueError(2)),
-        },
+        }),
         "lt" => match args {
             [x, y] => frombool(tonumber(x)? < tonumber(y)?),
             _ => return Err(Error::ValueError(2)),
@@ -147,6 +156,12 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
             _ => return Err(Error::ValueError(1)),
         },
         "end" => match args {
+            [Value::Quoted(Expr::CodeblockEnd(_, stmt))] if stmt == "_func" => {
+                return Err(Error::Return(Value::default()))
+            }
+            [v, Value::Quoted(Expr::CodeblockEnd(_, stmt))] if stmt == "_func" => {
+                return Err(Error::Return(v.clone()))
+            }
             [Value::Quoted(Expr::CodeblockEnd(start, stmt))] if stmt == "while" => {
                 state.lineno = start - 1;
                 Value::default()
@@ -184,10 +199,7 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
                 let index = toindex(i)?;
                 let list = l.borrow();
                 list.get(index)
-                    .ok_or_else(|| Error::IndexError {
-                        index,
-                        len: list.len(),
-                    })?
+                    .ok_or_else(|| Error::IndexError(index, list.len()))?
                     .clone()
             }
             _ => return Err(Error::ValueError(2)),
@@ -214,7 +226,7 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
                 borrow.insert(index, v.clone());
                 Value::default()
             }
-            _ => return Err(Error::ValueError(1)),
+            _ => return Err(Error::ValueError(3)),
         },
         "remove" => match args {
             [Value::List(l), i] => {
@@ -223,18 +235,51 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
                 let index = len.min(toindex(i)?);
                 borrow.remove(index)
             }
-            _ => return Err(Error::ValueError(1)),
+            _ => return Err(Error::ValueError(2)),
         },
         "replace" => match args {
             [Value::List(l), i, v] => {
                 let mut borrow = l.borrow_mut();
                 let index = toindex(i)?;
                 let len = borrow.len();
-                *borrow.get_mut(index).ok_or(Error::IndexError{index, len})? = v.clone();
+                *borrow.get_mut(index).ok_or(Error::IndexError(index, len))? = v.clone();
                 Value::default()
             }
-            _ => return Err(Error::ValueError(1)),
+            _ => return Err(Error::ValueError(3)),
         },
-        _ => return Err(Error::NotImplemented),
+        "_func" => {
+            if args.len() <= 1 {
+                return Err(Error::ValueError(2));
+            }
+            let name = &args[0];
+            let arguments = &args[1..args.len() - 1]
+                .iter()
+                .map(tostr)
+                .collect::<Vec<_>>();
+            let arguments = arguments
+                .first()
+                .map_or(false, |x| !str::eq(x, "...")) // ?????
+                .then(|| Rc::from(&arguments[..]));
+            if (state.functions)
+                .insert(
+                    tostr(name),
+                    Function {
+                        lineno: state.lineno + 1,
+                        arguments,
+                    },
+                )
+                .is_some()
+            {
+                return Err(Error::FuncDefined(tostr(name)));
+            }
+            state.lineno = match args[args.len() - 1] {
+                Value::Quoted(Expr::CodeblockStart(lineno)) => lineno,
+                _ => return Err(Error::ValueError(1)),
+            };
+            Value::default()
+        }
+        name => {
+            run::execute_function(state, name, args)?
+        }
     })
 }

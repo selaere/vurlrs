@@ -1,0 +1,18 @@
+_func Extend %a %b
+    set %i 1
+    while (lte [%i] (len [%b]))
+        push [%a] (index [%b] [%i])
+        set %i (add [%i] 1)
+    end
+end
+
+_func Concat ...
+    set %l (list)
+    set %i 1
+    while (lte [%i] (len [%args]))
+        Extend [%l] (index [%args] [%i])
+        set %i (add [%i] 1)
+    end
+end [%l]
+
+print (Concat (list 1 2 3) (list 4 5) (list) (list 6 7))

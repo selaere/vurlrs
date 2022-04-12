@@ -10,16 +10,17 @@ pub(crate) fn print_parsed(parsed: &[Option<Command>]) {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub(crate) enum Expr {
     Command(Command),
     Literal(String),
+    Number(f64),
     Variable(String),
     CodeblockStart(usize),
     CodeblockEnd(usize, String),
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub(crate) struct Command {
     pub(crate) name: String,
     pub(crate) args: Vec<Expr>,
@@ -30,6 +31,7 @@ impl fmt::Display for Expr {
         match self {
             Self::Command(cmd) => write!(f, "{}", cmd),
             Self::Literal(s) => write!(f, "\"{}\"", s.replace('"', r#"\""#)),
+            Self::Number(n) => write!(f, "{}", n),
             Self::Variable(s) => write!(f, "[{}]", s),
             Self::CodeblockStart(s) => write!(f, "(line {})", s),
             Self::CodeblockEnd(s, t) => write!(f, "(from {} at {})", t, s),
@@ -106,6 +108,8 @@ fn parse_command(
                 args.push(
                     if s.bytes().next() == Some(b'[') && s.bytes().last() == Some(b']') {
                         Expr::Variable(s[1..s.len() - 1].to_owned())
+                    } else if let Ok(x) = s.parse::<f64>() {
+                        Expr::Number(x)
                     } else {
                         Expr::Literal(s)
                     },
@@ -129,9 +133,9 @@ fn parse_command(
 pub(crate) fn do_code_blocks(cmds: &mut Vec<Option<Command>>) -> Result<(), String> {
     let mut stack: Vec<usize> = Vec::new();
     for lineno in 0..cmds.len() {
-        if let Some(ref cmd) = cmds[lineno] {
-            match &cmd.name[..] {
-                "if" | "while" | "define" => stack.push(lineno),
+        if let Some(cmd) = &cmds[lineno] {
+            match cmd.name.as_str() {
+                "if" | "while" | "define" | "_func" => stack.push(lineno),
                 "end" => {
                     // ugly
                     let start = (stack.pop())

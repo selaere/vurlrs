@@ -1,11 +1,20 @@
 use crate::{builtins, parse};
 use parse::{Command, Expr};
-use std::{collections::HashMap, error::Error, fmt, rc::Rc, cell::RefCell};
+use std::{cell::RefCell, collections::HashMap, error::Error, fmt, rc::Rc};
+
+#[derive(PartialEq, Debug)]
+pub(crate) struct State<'a> {
+    pub(crate) globals: &'a mut HashMap<Rc<str>, Value>,
+    pub(crate) locals: HashMap<Rc<str>, Value>,
+    pub(crate) lineno: usize,
+    pub(crate) functions: &'a mut HashMap<Rc<str>, Function>,
+    pub(crate) lines: &'a [Option<Command>],
+}
 
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) struct State {
-    pub(crate) globals: HashMap<Rc<str>, Value>,
+pub(crate) struct Function {
     pub(crate) lineno: usize,
+    pub(crate) arguments: Option<Rc<[Rc<str>]>>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -32,7 +41,7 @@ impl fmt::Display for RunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "runtime error (line {}, command {}): {}",
+            "error (line {}, command {}):\n{}",
             self.line, self.function, self.inner
         )
     }
@@ -41,16 +50,19 @@ impl Error for RunError {}
 
 #[derive(Debug)]
 pub(crate) enum RunErrorKind {
-    ValueError(i32),
+    ValueError(usize),
     NotImplemented,
     NameError(Rc<str>),
+    FuncDefined(Rc<str>),
     IsNotNumber(Value),
     IOError(std::io::Error),
     ZeroIndex,
-    IndexError { index: usize, len: usize },
+    IndexError(usize, usize),
     PopError,
     OrdError(Rc<str>),
     ChrError(u32),
+    Wrap(Box<RunError>),
+    Return(Value),
 }
 impl fmt::Display for RunErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -58,15 +70,19 @@ impl fmt::Display for RunErrorKind {
             Self::ValueError(num) => write!(f, "expected {} arguments", num),
             Self::NotImplemented => write!(f, "command not implemented"),
             Self::NameError(name) => write!(f, "variable [{}] is undefined", name),
+            Self::FuncDefined(name) => write!(f, "function {} is already defined", name),
             Self::IsNotNumber(value) => write!(f, "{} is not a number", value),
             Self::IOError(err) => write!(f, "io error: {}", err),
             Self::ZeroIndex => write!(f, "vurl is one-indexed, sadly"),
-            Self::IndexError { index, len } => {
+            Self::IndexError(index, len) => {
                 write!(f, "tried to use index {} of a list of {} items", index, len)
             }
             Self::PopError => write!(f, "cannot pop from an empty list"),
             Self::OrdError(s) => write!(f, "string \"{}\" must be one character long", s),
             Self::ChrError(i) => write!(f, "{} is not a valid unicode codepoint", i),
+            Self::Wrap(e) => write!(f, "{}", e),
+            Self::Return(v) => write!(f, "value {} returned outside function", v),
+            // Self::Return shouldnt happen but
         }
     }
 }
@@ -108,7 +124,14 @@ fn evaluate(state: &mut State, expr: &Expr) -> Result<Value, RunError> {
             })
         }
         Expr::Literal(s) => Ok(Value::String(Rc::from(s.as_str()))),
-        Expr::Variable(s) => (state.globals.get(s.as_str()).cloned()).ok_or_else(|| RunError {
+        Expr::Number(n) => Ok(Value::Number(*n)),
+        Expr::Variable(s) => (if s.starts_with('%') {
+            state.locals.get(s.as_str())
+        } else {
+            state.globals.get(s.as_str())
+        })
+        .cloned()
+        .ok_or_else(|| RunError {
             line: state.lineno,
             function: Rc::from("n/a"),
             inner: RunErrorKind::NameError(Rc::from(s.as_str())),
@@ -119,8 +142,11 @@ fn evaluate(state: &mut State, expr: &Expr) -> Result<Value, RunError> {
 
 pub(crate) fn execute(lines: Vec<Option<Command>>) -> Result<(), RunError> {
     let mut state = State {
-        globals: HashMap::new(),
+        globals: &mut HashMap::new(),
+        locals: HashMap::new(),
+        functions: &mut HashMap::new(),
         lineno: 0,
+        lines: &lines,
     };
     while state.lineno < lines.len() {
         if let Some(cmd) = &lines[state.lineno] {
@@ -129,4 +155,48 @@ pub(crate) fn execute(lines: Vec<Option<Command>>) -> Result<(), RunError> {
         state.lineno += 1;
     }
     Ok(())
+}
+
+pub(crate) fn execute_function(
+    state: &mut State,
+    name: &str,
+    args: &[Value],
+) -> Result<Value, RunErrorKind> {
+    let func = state
+        .functions
+        .get(name)
+        .ok_or(RunErrorKind::NotImplemented)?;
+    let mut locals = HashMap::from([(
+        Rc::from("%args"),
+        Value::List(Rc::from(RefCell::from(args.to_vec()))),
+    )]);
+    if let Some(fargs) = &func.arguments {
+        let fargs = Rc::clone(fargs);
+        if fargs.len() != args.len() {
+            return Err(RunErrorKind::ValueError(fargs.len()));
+        }
+        for (k, v) in fargs.iter().zip(args) {
+            locals.insert(Rc::clone(k), v.clone());
+        }
+    }
+    let mut state = State {
+        globals: state.globals,
+        locals,
+        lineno: func.lineno,
+        functions: state.functions,
+        lines: state.lines,
+    };
+    loop {
+        if let Some(cmd) = &state.lines[state.lineno] {
+            match evaluate(&mut state, &Expr::Command(cmd.to_owned())) {
+                Ok(_) => (),
+                Err(RunError {
+                    inner: RunErrorKind::Return(v),
+                    ..
+                }) => return Ok(v),
+                Err(e) => return Err(RunErrorKind::Wrap(Box::new(e))),
+            };
+        };
+        state.lineno += 1;
+    }
 }

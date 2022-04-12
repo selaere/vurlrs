@@ -1,5 +1,16 @@
-set list (list 1 2 3)
+_func signum %n
+    if (gt [%n] 0)
+        set %r 1
+    end
+    if (eq [%n] 0)
+        set %r 0
+    end
+    if (lt [%n] 0)
+        set %r -1
+    end
+end [%r]
 
-push [list] 4
-push [list] (add (index [list] (len [list])) 1)
-print [list]
+
+print "sgn(3.14) =" (signum 3.14)
+print "sgn(0)    =" (signum 0)
+print "sgn(-4)   =" (signum -4)
