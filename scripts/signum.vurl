@@ -1,0 +1,18 @@
+_func signum %n
+    if (gt [%n] 0)
+        set %r 1
+    end
+    if (eq [%n] 0)
+        set %r 0
+    end
+    if (lt [%n] 0)
+        set %r -1
+    end
+end [%r]
+
+
+print "sgn(3.14) =" (signum 3.14)
+print "sgn(0)    =" (signum 0)
+print "sgn(-4)   =" (signum -4)
+
+print (sub 1 1)

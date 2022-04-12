@@ -1,4 +1,4 @@
-# brainfuck interpreter in [vurl](https://esolangs.org/wiki/Vurl)
+# brainfuck interpreter in vurl, modified slightly to use vurlrs features
 # 
 # sample programs:
 #   hello world: ++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.
@@ -75,14 +75,15 @@ while (lte [ip] (len [instr]))
     end
   end
   if (eq [c] .)
-    if (eq [this] 10)
-      print [currentline]
-      set currentline ""
-    end
-    if (not (eq [this] 10))
-      set char (substr [ascii] (add [this] 1) (add [this] 1))
-      set currentline (join [currentline] [char])
-    end
+    # if (eq [this] 10)
+    #   print [currentline]
+    #   set currentline ""
+    # end
+    # if (not (eq [this] 10))
+    #   set char (substr [ascii] (add [this] 1) (add [this] 1))
+    #   set currentline (join [currentline] [char])
+    # end
+    _printraw (substr [ascii] (add [this] 1) (add [this] 1))
   end
   if (and (eq [c] ,) (gt (len [input]) 0))
     set char (substr [input] 1 1)
@@ -103,6 +104,6 @@ while (lte [ip] (len [instr]))
   end
   set ip (add [ip] 1)
 end
-print [currentline]
+# print [currentline]
 
 print (join "tape: " [tape])

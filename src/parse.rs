@@ -1,6 +1,6 @@
 use std::{fmt, iter, str};
 
-pub(crate) fn print_parsed(parsed: &[Option<Command>]) {
+pub fn print_parsed(parsed: &[Option<Command>]) {
     for line in parsed {
         if let Some(cmd) = line {
             println!("{}", cmd);
@@ -11,7 +11,7 @@ pub(crate) fn print_parsed(parsed: &[Option<Command>]) {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) enum Expr {
+pub enum Expr {
     Command(Command),
     Literal(String),
     Number(f64),
@@ -21,9 +21,9 @@ pub(crate) enum Expr {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) struct Command {
-    pub(crate) name: String,
-    pub(crate) args: Vec<Expr>,
+pub struct Command {
+    pub name: String,
+    pub args: Vec<Expr>,
 }
 
 impl fmt::Display for Expr {
@@ -54,7 +54,7 @@ impl fmt::Display for Command {
     }
 }
 
-pub(crate) fn parse(code: &str) -> Vec<Option<Command>> {
+pub fn parse(code: &str) -> Vec<Option<Command>> {
     code.split('\n')
         .enumerate()
         .map(|(lineno, line)| {
@@ -130,7 +130,7 @@ fn parse_command(
     }
 }
 
-pub(crate) fn do_code_blocks(cmds: &mut Vec<Option<Command>>) -> Result<(), String> {
+pub fn do_code_blocks(cmds: &mut Vec<Option<Command>>) -> Result<(), String> {
     let mut stack: Vec<usize> = Vec::new();
     for lineno in 0..cmds.len() {
         if let Some(cmd) = &cmds[lineno] {

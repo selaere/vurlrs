@@ -1,6 +1,6 @@
 use crate::parse::Expr;
 use crate::run::{self, Function, RunErrorKind as Error, State, Value};
-use std::cell::RefCell;
+use std::cell::{RefCell, RefMut};
 use std::fmt::Write;
 use std::rc::Rc;
 
@@ -32,32 +32,40 @@ fn toindex(val: &Value) -> Result<usize, Error> {
         .ok_or(Error::ZeroIndex)
 }
 
-pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<Value, Error> {
+fn tolist(val: &Value) -> Result<RefMut<Vec<Value>>, Error> {
+    match val {
+        Value::List(l) => Ok(l.borrow_mut()),
+        _ => Err(Error::IsNotList(val.clone())),
+    }
+}
+
+pub fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<Value, Error> {
+    // yes i have to specify how many arguments there are. i could use ${count} but that's unstable
+    macro_rules! command {
+        ($num:literal $($var:ident)* => $code:expr) => {
+            match args {
+                [$( $var ),*] => $code,
+                _ => return Err(Error::ValueError($num)),
+            }
+        };
+    }
+
     Ok(match name {
         "add" => Value::Number(
             args.iter()
                 .map(tonumber)
                 .reduce(|x, y| Ok(x? + y?))
-                .unwrap_or(Ok(0f64))?, // returns 0 if argument list is empty
+                .unwrap_or(Ok(0f64))?,
         ),
         "mul" => Value::Number(
             args.iter()
                 .map(tonumber)
                 .reduce(|x, y| Ok(x? * y?))
-                .unwrap_or(Ok(1f64))?, // returns 1 if argument list is empty
+                .unwrap_or(Ok(1f64))?,
         ),
-        "sub" => match args {
-            [x, y] => Value::Number(tonumber(x)? - tonumber(y)?),
-            _ => return Err(Error::ValueError(2)),
-        },
-        "div" => match args {
-            [x, y] => Value::Number(tonumber(x)? / tonumber(y)?),
-            _ => return Err(Error::ValueError(2)),
-        },
-        "mod" => match args {
-            [x, y] => Value::Number(tonumber(x)? % tonumber(y)?),
-            _ => return Err(Error::ValueError(2)),
-        },
+        "sub" => command!(2 x y => Value::Number(tonumber(x)? - tonumber(y)?)),
+        "div" => command!(2 x y => Value::Number(tonumber(x)? / tonumber(y)?)),
+        "mod" => command!(2 x y => Value::Number(tonumber(x)? % tonumber(y)?)),
         "join" => {
             let mut string = String::new();
             for item in args {
@@ -71,17 +79,15 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
             [l] => Value::Number(tostr(l).chars().count() as _),
             _ => return Err(Error::ValueError(1)),
         },
-        "set" => match args {
-            [Value::String(l), r] => {
-                if l.starts_with('%') {
-                    state.locals.insert(Rc::clone(l), r.clone());
-                } else {
-                    state.globals.insert(Rc::clone(l), r.clone());
-                }
-                Value::default()
+        "set" => command!(2 l r => {
+            let l = tostr(l);
+            if l.starts_with('%') {
+                state.locals.insert(l, r.clone());
+            } else {
+                state.globals.insert(l, r.clone());
             }
-            _ => return Err(Error::ValueError(2)),
-        },
+            Value::default()
+        }),
         "print" => {
             for (n, v) in args.iter().enumerate() {
                 if n == args.len() - 1 {
@@ -92,60 +98,42 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
             }
             Value::default()
         }
-        "input" => {
+        "_printraw" => {
+            for v in args.iter() {
+                print!("{}", v)
+            }
+            Value::default()
+        }
+        "input" => command!(0 => {
             let mut buffer = String::new();
             std::io::stdin()
                 .read_line(&mut buffer)
                 .map_err(Error::IOError)?;
             Value::String(Rc::from(buffer))
-        }
-        "substr" => match args {
-            [s, x, y] => {
-                let (start, stop) = (tonumber(x)? as usize, tonumber(y)? as usize);
-                Value::String(Rc::from(
-                    tostr(s)
-                        .chars()
-                        .skip(start - 1)
-                        .take(stop.saturating_sub(start - 1))
-                        .collect::<String>(),
-                ))
-            }
-            _ => return Err(Error::ValueError(3)),
-        },
-        "not" => match args {
-            [x] => frombool(tonumber(x)? == 0f64),
-            _ => return Err(Error::ValueError(2)),
-        },
+        }),
+        "substr" => command!(3 s x y => {
+            let (start, stop) = (tonumber(x)? as usize, tonumber(y)? as usize);
+            Value::String(Rc::from(
+                tostr(s)
+                    .chars()
+                    .skip(start - 1)
+                    .take(stop.saturating_sub(start - 1))
+                    .collect::<String>(),
+            ))
+        }),
         "eq" => frombool(match args {
             [Value::List(l), Value::List(m)] => l == m,
             [Value::Number(x), Value::Number(y)] => x == y,
             [x, y] => tostr(x) == tostr(y),
             _ => return Err(Error::ValueError(2)),
         }),
-        "lt" => match args {
-            [x, y] => frombool(tonumber(x)? < tonumber(y)?),
-            _ => return Err(Error::ValueError(2)),
-        },
-        "gt" => match args {
-            [x, y] => frombool(tonumber(x)? > tonumber(y)?),
-            _ => return Err(Error::ValueError(2)),
-        },
-        "lte" => match args {
-            [x, y] => frombool(tonumber(x)? <= tonumber(y)?),
-            _ => return Err(Error::ValueError(2)),
-        },
-        "gte" => match args {
-            [x, y] => frombool(tonumber(x)? >= tonumber(y)?),
-            _ => return Err(Error::ValueError(2)),
-        },
-        "or" => match args {
-            [x, y] => frombool(tonumber(x)? != 0f64 || tonumber(y)? != 0f64),
-            _ => return Err(Error::ValueError(2)),
-        },
-        "and" => match args {
-            [x, y] => frombool(tonumber(x)? != 0f64 && tonumber(y)? != 0f64),
-            _ => return Err(Error::ValueError(2)),
-        },
+        "not" => command!(1 x => frombool(tonumber(x)? == 0f64)),
+        "lt" => command!(2 x y => frombool(tonumber(x)? < tonumber(y)?)),
+        "gt" => command!(2 x y => frombool(tonumber(x)? > tonumber(y)?)),
+        "lte" => command!(2 x y => frombool(tonumber(x)? <= tonumber(y)?)),
+        "gte" => command!(2 x y => frombool(tonumber(x)? >= tonumber(y)?)),
+        "or" => command!(2 x y => frombool(tonumber(x)? != 0f64 || tonumber(y)? != 0f64)),
+        "and" => command!(2 x y => frombool(tonumber(x)? != 0f64 && tonumber(y)? != 0f64)),
         "if" | "while" => match args {
             [cond, Value::Quoted(Expr::CodeblockStart(end))] => {
                 if tonumber(cond)? == 0f64 {
@@ -156,7 +144,7 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
             _ => return Err(Error::ValueError(1)),
         },
         "end" => match args {
-            [Value::Quoted(Expr::CodeblockEnd(_, stmt))] if stmt == "_func" => {
+            [Value::Quoted(Expr::CodeblockEnd(_, stmt))] if stmt == "_func" || stmt == "define" => {
                 return Err(Error::Return(Value::default()))
             }
             [v, Value::Quoted(Expr::CodeblockEnd(_, stmt))] if stmt == "_func" => {
@@ -169,87 +157,59 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
             [Value::Quoted(Expr::CodeblockEnd(_, _))] => Value::default(),
             _ => return Err(Error::ValueError(0)),
         },
-        "_ord" => match args {
-            [x] => {
-                let string = tostr(x);
-                let mut iter = string.chars();
-                let chr = iter
-                    .next()
-                    .ok_or_else(|| Error::OrdError(Rc::clone(&string)))?;
-                if iter.next().is_some() {
-                    return Err(Error::OrdError(Rc::clone(&string)));
-                };
-                Value::Number(chr as u32 as f64)
-            }
-            _ => return Err(Error::ValueError(1)),
-        },
-        "_chr" => match args {
-            [x] => {
-                let num = tonumber(x)? as u32;
-                Value::String(Rc::from(
-                    char::try_from(num)
-                        .map_err(|_| Error::ChrError(num))?
-                        .to_string(),
-                ))
-            }
-            _ => return Err(Error::ValueError(1)),
-        },
-        "index" => match args {
-            [Value::List(l), i] => {
-                let index = toindex(i)?;
-                let list = l.borrow();
-                list.get(index)
-                    .ok_or_else(|| Error::IndexError(index, list.len()))?
-                    .clone()
-            }
-            _ => return Err(Error::ValueError(2)),
-        },
-        "push" => match args {
-            [Value::List(l), i] => {
-                let mut borrow = l.borrow_mut();
-                borrow.push(i.clone());
-                Value::default()
-            }
-            _ => return Err(Error::ValueError(2)),
-        },
-        "pop" => match args {
-            [Value::List(l)] => {
-                let mut borrow = l.borrow_mut();
-                borrow.pop().ok_or(Error::PopError)? // this is fine apparently??
-            }
-            _ => return Err(Error::ValueError(1)),
-        },
-        "insert" => match args {
-            [Value::List(l), i, v] => {
-                let mut borrow = l.borrow_mut();
-                let index = borrow.len().min(toindex(i)?);
-                borrow.insert(index, v.clone());
-                Value::default()
-            }
-            _ => return Err(Error::ValueError(3)),
-        },
-        "remove" => match args {
-            [Value::List(l), i] => {
-                let mut borrow = l.borrow_mut();
-                let len = borrow.len();
-                let index = len.min(toindex(i)?);
-                borrow.remove(index)
-            }
-            _ => return Err(Error::ValueError(2)),
-        },
-        "replace" => match args {
-            [Value::List(l), i, v] => {
-                let mut borrow = l.borrow_mut();
-                let index = toindex(i)?;
-                let len = borrow.len();
-                *borrow.get_mut(index).ok_or(Error::IndexError(index, len))? = v.clone();
-                Value::default()
-            }
-            _ => return Err(Error::ValueError(3)),
-        },
+        "_ord" => command!(1 x => {
+            let string = tostr(x);
+            let mut iter = string.chars();
+            let chr = (iter.next())
+                .ok_or_else(|| Error::OrdError(Rc::clone(&string)))?;
+            if iter.next().is_some() {
+                return Err(Error::OrdError(Rc::clone(&string)));
+            };
+            Value::Number(chr as u32 as f64)
+        }),
+        "_chr" => command!(1 x => {
+            let num = tonumber(x)? as u32;
+            Value::String(Rc::from(
+                char::try_from(num)
+                    .map_err(|_| Error::ChrError(num))?
+                    .to_string(),
+            ))
+        }),
+        "index" => command!(2 l i => {
+            let list = tolist(l)?;
+            let index = toindex(i)?;
+            list.get(index)
+                .ok_or_else(|| Error::IndexError(index, list.len()))?
+                .clone()
+        }),
+        "push" => command!(2 l v => {
+            let mut borrow = tolist(l)?;
+            borrow.push(v.clone());
+            Value::default()
+        }),
+        "pop" => command!(1 l => tolist(l)?.pop().ok_or(Error::PopError)?),
+        "insert" => command!(3 l i v => {
+            let mut borrow = tolist(l)?;
+            let index = borrow.len().min(toindex(i)?);
+            borrow.insert(index, v.clone());
+            Value::default()
+        }),
+        "remove" => command!(2 l i => {
+            let mut borrow = tolist(l)?;
+            let len = borrow.len();
+            let index = len.min(toindex(i)?);
+            borrow.remove(index)
+        }),
+        "replace" => command!(3 l i v => {
+            let mut borrow = tolist(l)?;
+            let index = toindex(i)?;
+            let len = borrow.len();
+            *borrow.get_mut(index).ok_or(Error::IndexError(index, len))? = v.clone();
+            Value::default()
+        }),
         "_func" => {
             if args.len() <= 1 {
-                return Err(Error::ValueError(2));
+                return Err(Error::ValueError(1));
             }
             let name = &args[0];
             let arguments = &args[1..args.len() - 1]
@@ -278,8 +238,29 @@ pub(crate) fn builtins(state: &mut State, name: &str, args: &[Value]) -> Result<
             };
             Value::default()
         }
-        name => {
-            run::execute_function(state, name, args)?
-        }
+        "define" => match args {
+            [name, Value::Quoted(Expr::CodeblockStart(lineno))] => {
+                if (state.functions)
+                    .insert(
+                        Rc::from("call ".to_string() + &tostr(name)),
+                        Function {
+                            lineno: state.lineno + 1,
+                            arguments: None,
+                        },
+                    )
+                    .is_some()
+                {
+                    return Err(Error::FuncDefined(tostr(name)));
+                };
+                state.lineno = *lineno;
+                Value::default()
+            }
+            _ => return Err(Error::ValueError(1)),
+        },
+        "call" => match args {
+            [name] => run::execute_function(state, &("call ".to_string() + &tostr(name)), &[])?,
+            _ => return Err(Error::ValueError(1)),
+        },
+        name => run::execute_function(state, name, args)?,
     })
 }

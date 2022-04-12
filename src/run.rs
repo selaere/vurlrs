@@ -3,22 +3,22 @@ use parse::{Command, Expr};
 use std::{cell::RefCell, collections::HashMap, error::Error, fmt, rc::Rc};
 
 #[derive(PartialEq, Debug)]
-pub(crate) struct State<'a> {
-    pub(crate) globals: &'a mut HashMap<Rc<str>, Value>,
-    pub(crate) locals: HashMap<Rc<str>, Value>,
-    pub(crate) lineno: usize,
-    pub(crate) functions: &'a mut HashMap<Rc<str>, Function>,
-    pub(crate) lines: &'a [Option<Command>],
+pub struct State<'a> {
+    pub globals: &'a mut HashMap<Rc<str>, Value>,
+    pub locals: HashMap<Rc<str>, Value>,
+    pub lineno: usize,
+    pub functions: &'a mut HashMap<Rc<str>, Function>,
+    pub lines: &'a [Option<Command>],
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) struct Function {
-    pub(crate) lineno: usize,
-    pub(crate) arguments: Option<Rc<[Rc<str>]>>,
+pub struct Function {
+    pub lineno: usize,
+    pub arguments: Option<Rc<[Rc<str>]>>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) enum Value {
+pub enum Value {
     String(Rc<str>),
     List(Rc<RefCell<Vec<Value>>>),
     Number(f64),
@@ -32,7 +32,7 @@ impl Default for Value {
 }
 
 #[derive(Debug)]
-pub(crate) struct RunError {
+pub struct RunError {
     line: usize,
     function: Rc<str>,
     inner: RunErrorKind,
@@ -49,20 +49,21 @@ impl fmt::Display for RunError {
 impl Error for RunError {}
 
 #[derive(Debug)]
-pub(crate) enum RunErrorKind {
+pub enum RunErrorKind {
+    Wrap(Box<RunError>),
+    Return(Value),
     ValueError(usize),
     NotImplemented,
     NameError(Rc<str>),
     FuncDefined(Rc<str>),
     IsNotNumber(Value),
+    IsNotList(Value),
     IOError(std::io::Error),
     ZeroIndex,
     IndexError(usize, usize),
     PopError,
     OrdError(Rc<str>),
     ChrError(u32),
-    Wrap(Box<RunError>),
-    Return(Value),
 }
 impl fmt::Display for RunErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -72,6 +73,7 @@ impl fmt::Display for RunErrorKind {
             Self::NameError(name) => write!(f, "variable [{}] is undefined", name),
             Self::FuncDefined(name) => write!(f, "function {} is already defined", name),
             Self::IsNotNumber(value) => write!(f, "{} is not a number", value),
+            Self::IsNotList(value) => write!(f, "{} is not a list", value),
             Self::IOError(err) => write!(f, "io error: {}", err),
             Self::ZeroIndex => write!(f, "vurl is one-indexed, sadly"),
             Self::IndexError(index, len) => {
@@ -140,7 +142,7 @@ fn evaluate(state: &mut State, expr: &Expr) -> Result<Value, RunError> {
     }
 }
 
-pub(crate) fn execute(lines: Vec<Option<Command>>) -> Result<(), RunError> {
+pub fn execute(lines: Vec<Option<Command>>) -> Result<(), RunError> {
     let mut state = State {
         globals: &mut HashMap::new(),
         locals: HashMap::new(),
@@ -157,7 +159,7 @@ pub(crate) fn execute(lines: Vec<Option<Command>>) -> Result<(), RunError> {
     Ok(())
 }
 
-pub(crate) fn execute_function(
+pub fn execute_function(
     state: &mut State,
     name: &str,
     args: &[Value],
