@@ -1,5 +1,4 @@
 todo:
-- define, call
 - _sqrt, _pow
 - _round, _floor, _ceil
 - _get, _globals

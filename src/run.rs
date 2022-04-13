@@ -131,17 +131,18 @@ fn evaluate(state: &mut State, expr: &Expr) -> Result<Value, RunError> {
         }
         Expr::Literal(s) => Ok(Value::String(Rc::from(s.as_str()))),
         Expr::Number(n) => Ok(Value::Number(*n)),
-        Expr::Variable(s) => (if s.starts_with('%') {
-            state.locals.get(s.as_str())
-        } else {
-            state.globals.get(s.as_str())
-        })
-        .cloned()
-        .ok_or_else(|| RunError {
-            line: state.lineno,
-            function: Rc::from("n/a"),
-            inner: RunErrorKind::NameError(Rc::from(s.as_str())),
-        }),
+        Expr::Variable(s) => {
+            let var = if s.starts_with('%') {
+                state.locals.get(s.as_str())
+            } else {
+                state.globals.get(s.as_str())
+            };
+            var.cloned().ok_or_else(|| RunError {
+                line: state.lineno,
+                function: Rc::from("n/a"),
+                inner: RunErrorKind::NameError(Rc::from(s.as_str())),
+            })
+        }
         Expr::Lineptr(l) => Ok(Value::Lineptr(*l)),
     }
 }

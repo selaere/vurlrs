@@ -88,12 +88,13 @@ while (lte [ip] (len [instr]))
   if (and (eq [c] ,) (gt (len [input]) 0))
     set char (substr [input] 1 1)
     set i 1
-    while (lte [i] (len [ascii]))
-      if (eq (substr [ascii] [i] [i]) [char])
-        replace [tape] [ptr] (sub [i] 1)
-      end
-      set i (add [i] 1)
-    end
+    # while (lte [i] (len [ascii]))
+    #   if (eq (substr [ascii] [i] [i]) [char])
+    #     replace [tape] [ptr] (sub [i] 1)
+    #   end
+    #   set i (add [i] 1)
+    # end
+    replace [tape] [ptr] (mod (_ord [char]) 256)
     set input (substr [input] 2 (len [input]))
   end
   if (and (eq (substr [c] 1 1) "[") (eq [this] 0))

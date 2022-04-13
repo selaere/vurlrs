@@ -52,23 +52,81 @@ impl fmt::Display for Command {
     }
 }
 
-pub fn parse(code: &str) -> Vec<Option<Command>> {
-    code.split('\n')
-        .enumerate()
-        .map(|(lineno, line)| {
-            let line = line.trim();
-            (!line.is_empty() && !line.starts_with('#')).then(|| {
-                parse_command(&mut line.trim().chars().peekable(), true)
-                    .unwrap_or_else(|e| panic!("syntax error: {} at line {}", e, lineno))
-            })
-        })
-        .collect()
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseError {
+    Lined(usize, ParseErrorLine),
+    UnclosedBlock,
+    UnexpectedEnd,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseErrorLine {
+    StringEOL,
+    NameIsNotString,
+    UnclosedParen,
+    UnexpectedParen,
+    EmptyCommand,
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Lined(line, error) => write!(f, "error at line {}: {}", line, error),
+            Self::UnclosedBlock => write!(f, "unclosed block"),
+            Self::UnexpectedEnd => write!(f, "unexpected `end`"),
+        }
+    }
+}
+impl std::error::Error for ParseError {}
+
+impl fmt::Display for ParseErrorLine {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let str = match self {
+            Self::StringEOL => "quoted strings cannot span multiple lines",
+            Self::NameIsNotString => "the name of a command must be a string, try using _apply",
+            Self::UnclosedParen => "unclosed parenthesis",
+            Self::UnexpectedParen => "unexpected parenthesis",
+            Self::EmptyCommand => "empty command",
+        };
+        write!(f, "{}", str)
+    }
+}
+
+pub fn parse(code: &str) -> Result<Vec<Option<Command>>, ParseError> {
+    let mut stack = Vec::new();
+    let mut commands = Vec::<Option<Command>>::new();
+    for (lineno, line) in code.split('\n').enumerate() {
+        let line = line.trim();
+        if !line.is_empty() && !line.starts_with('#') {
+            let mut cmd = parse_command(&mut line.trim().chars().peekable(), true)
+                .map_err(|e| ParseError::Lined(lineno, e))?;
+            match cmd.name.as_str() {
+                "if" | "while" | "define" | "_func" => stack.push(lineno),
+                "end" => {
+                    let startno = stack.pop().ok_or(ParseError::UnexpectedEnd)?;
+                    let startline = commands[startno].as_mut().unwrap();
+                    startline.args.push(Expr::Lineptr(lineno));
+
+                    cmd.args.push(Expr::Lineptr(startno));
+                    cmd.name = cmd.name + " " + &startline.name;
+                }
+                _ => (),
+            }
+            commands.push(Some(cmd));
+        } else {
+            commands.push(None);
+        }
+    }
+    if !stack.is_empty() {
+        return Err(ParseError::UnclosedBlock);
+    }
+    Ok(commands)
 }
 
 fn parse_command(
     chars: &mut iter::Peekable<str::Chars>,
     is_top_level: bool,
-) -> Result<Command, String> {
+) -> Result<Command, ParseErrorLine> {
     let mut args: Vec<Expr> = vec![];
     loop {
         match chars.next() {
@@ -79,78 +137,50 @@ fn parse_command(
                     match chars.next() {
                         Some('"') if matches!(chars.peek(), Some(')' | ' ') | None) => break,
                         Some(chr) => s.push(chr),
-                        None => return Err("strings cannot span multiple lines".to_string()),
+                        None => return Err(ParseErrorLine::StringEOL),
                     }
                 }
                 args.push(Expr::Literal(s))
             }
             Some(' ') => (),
 
-            Some(')') if is_top_level => return Err("unexpected )".to_string()),
+            Some(')') if is_top_level => return Err(ParseErrorLine::UnexpectedParen),
             Some(')') => break,
 
             None if is_top_level => break,
-            None => return Err("unclosed parenthesis".to_string()),
+            None => return Err(ParseErrorLine::UnclosedParen),
 
             Some(fst) => {
-                let mut s = String::with_capacity(chars.size_hint().0);
+                let mut s = String::new();
+                let mut parenlevel = 0;
                 s.push(fst);
                 loop {
-                    if let Some(' ' | ')') | None = chars.peek().copied() {
-                        break;
+                    match chars.peek() {
+                        Some('(') => parenlevel += 1,
+                        Some(')') if parenlevel > 0 => parenlevel -= 1,
+                        Some(' ' | ')') | None => break,
+                        _ => (),
                     }
                     if let Some(x) = chars.next() {
                         s.push(x)
                     }
                 }
-                args.push(
-                    if s.bytes().next() == Some(b'[') && s.bytes().last() == Some(b']') {
-                        Expr::Variable(s[1..s.len() - 1].to_owned())
-                    } else if let Ok(x) = s.parse::<f64>() {
-                        Expr::Number(x)
-                    } else {
-                        Expr::Literal(s)
-                    },
-                )
+                args.push(if s.starts_with('[') && s.ends_with(']') {
+                    Expr::Variable(s[1..s.len() - 1].to_owned())
+                } else if let Ok(x) = s.parse::<f64>() {
+                    Expr::Number(x)
+                } else {
+                    Expr::Literal(s)
+                })
             }
         }
     }
-    if args.is_empty() {
-        return Err("empty command".to_string());
-    }
-    if let Expr::Literal(name) = &args.get(0).ok_or_else(|| "empty command".to_string())? {
+    if let Expr::Literal(name) = &args.get(0).ok_or(ParseErrorLine::EmptyCommand)? {
         Ok(Command {
             name: name.to_owned(),
             args: args[1..].to_vec(),
         })
     } else {
-        Err("name must be a string".to_string())
+        Err(ParseErrorLine::NameIsNotString)
     }
-}
-
-pub fn do_code_blocks(cmds: &mut Vec<Option<Command>>) -> Result<(), String> {
-    let mut stack: Vec<usize> = Vec::new();
-    for lineno in 0..cmds.len() {
-        if let Some(cmd) = &cmds[lineno] {
-            match cmd.name.as_str() {
-                "if" | "while" | "define" | "_func" => stack.push(lineno),
-                "end" => {
-                    // ugly
-                    let start = (stack.pop())
-                        .ok_or_else(|| format!("unexpected ``end`` at line {}", lineno + 1))?;
-                    let startline = cmds[start].as_mut().unwrap();
-                    startline.args.push(Expr::Lineptr(lineno));
-                    let name = startline.name.to_owned();
-                    let endline = cmds[lineno].as_mut().unwrap();
-                    endline.args.push(Expr::Lineptr(start));
-                    endline.name = "end ".to_string() + &name;
-                }
-                _ => (),
-            };
-        }
-    }
-    if !stack.is_empty() {
-        return Err("``end`` missing".to_string());
-    }
-    Ok(())
 }
