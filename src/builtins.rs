@@ -2,27 +2,28 @@ use crate::run::{self, Function, RunErrorKind as Error, State, Value};
 use std::cell::{RefCell, RefMut};
 use std::fmt::Write;
 use std::rc::Rc;
+use Value::{Lineptr, List, Number, String as StringVal};
 
 fn tonumber(val: &Value) -> Result<f64, Error> {
     match &val {
-        Value::String(s) => s
+        StringVal(s) => s
             .parse::<f64>()
             .map_err(|_| Error::IsNotNumber(val.clone())),
-        Value::List(_) => Err(Error::IsNotNumber(val.clone())),
-        Value::Number(n) => Ok(*n),
-        Value::Lineptr(_) => panic!(),
+        List(_) => Err(Error::IsNotNumber(val.clone())),
+        Number(n) => Ok(*n),
+        Lineptr(_) => panic!(),
     }
 }
 
 fn tostr(val: &Value) -> Rc<str> {
     match val {
-        Value::String(s) => Rc::clone(s),
+        StringVal(s) => Rc::clone(s),
         other => Rc::from(format!("{}", other).as_str()),
     }
 }
 
 fn frombool(boole: bool) -> Value {
-    Value::Number(boole as i32 as f64)
+    Number(boole as i32 as f64)
 }
 
 fn toindex(val: &Value) -> Result<usize, Error> {
@@ -33,8 +34,19 @@ fn toindex(val: &Value) -> Result<usize, Error> {
 
 fn tolist(val: &Value) -> Result<RefMut<Vec<Value>>, Error> {
     match val {
-        Value::List(l) => Ok(l.borrow_mut()),
+        List(l) => Ok(l.borrow_mut()),
         _ => Err(Error::IsNotList(val.clone())),
+    }
+}
+
+fn eq(a: &Value, b: &Value) -> bool {
+    match &[a, b] {
+        [List(l), List(m)] => {
+            let (l, m) = (l.borrow(), m.borrow());
+            l.iter().zip(m.iter()).all(|(x, y)| eq(x, y))
+        }
+        [Number(x), Number(y)] => x == y,
+        [x, y] => tostr(x) == tostr(y),
     }
 }
 
@@ -54,7 +66,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
         };
     }
 
-    if let Some(Value::Lineptr(lineptr)) = args.last() {
+    if let Some(Lineptr(lineptr)) = args.last() {
         args = &args[..args.len() - 1];
         return Ok(match name {
             "end _func" | "end define" => match args {
@@ -119,63 +131,40 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
     }
 
     Ok(match name {
-        "set" => fixed!([l, r], {
-            let l = tostr(l);
-            if l.starts_with('%') {
-                state.locals.insert(l, r.clone());
-            } else {
-                state.globals.insert(l, r.clone());
-            }
-            Value::default()
-        }),
-        "_get" => fixed!([v], {
-            let s = tostr(v);
-            let var = if s.starts_with('%') {
-                state.locals.get(s.as_ref())
-            } else {
-                state.globals.get(s.as_ref())
-            };
-            var.cloned().ok_or(Error::NameError(s))?
-        }),
-        "call" => fixed!([name], {
-            run::execute_function(state, &("call ".to_string() + &tostr(name)), &[])?
-        }),
-        "add" => Value::Number(
+        "add" => Number(
             args.iter()
                 .map(tonumber)
                 .reduce(|x, y| Ok(x? + y?))
                 .unwrap_or(Ok(0f64))?,
         ),
-        "mul" => Value::Number(
+        "mul" => Number(
             args.iter()
                 .map(tonumber)
                 .reduce(|x, y| Ok(x? * y?))
                 .unwrap_or(Ok(1f64))?,
         ),
-        "sub" => fixed!([x, y], Value::Number(tonumber(x)? - tonumber(y)?)),
-        "div" => fixed!([x, y], Value::Number(tonumber(x)? / tonumber(y)?)),
-        "mod" => fixed!([x, y], Value::Number(tonumber(x)? % tonumber(y)?)),
-        "_pow" => fixed!([x, y], Value::Number(tonumber(x)?.powf(tonumber(y)?))),
-        "_floor" => fixed!([x], Value::Number(tonumber(x)?.floor())),
-        "_sin" => fixed!([x], Value::Number(tonumber(x)?.sin())),
-        "_cos" => fixed!([x], Value::Number(tonumber(x)?.cos())),
-        "_tan" => fixed!([x], Value::Number(tonumber(x)?.tan())),
-        "_asin" => fixed!([x], Value::Number(tonumber(x)?.asin())),
-        "_acos" => fixed!([x], Value::Number(tonumber(x)?.acos())),
-        "_atan" => fixed!([x], Value::Number(tonumber(x)?.atan())),
-        "_ln" => fixed!([x], Value::Number(tonumber(x)?.ln())),
+        "sub" => fixed!([x, y], Number(tonumber(x)? - tonumber(y)?)),
+        "div" => fixed!([x, y], Number(tonumber(x)? / tonumber(y)?)),
+        "mod" => fixed!([x, y], Number(tonumber(x)? % tonumber(y)?)),
+        "_pow" => fixed!([x, y], Number(tonumber(x)?.powf(tonumber(y)?))),
+        "_floor" => fixed!([x], Number(tonumber(x)?.floor())),
+        "_round" => fixed!([x], Number(tonumber(x)?.round())),
+        "_sqrt" => fixed!([x], Number(tonumber(x)?.sqrt())),
+        "_sin" => fixed!([x], Number(tonumber(x)?.sin())),
+        "_cos" => fixed!([x], Number(tonumber(x)?.cos())),
+        "_tan" => fixed!([x], Number(tonumber(x)?.tan())),
+        "_asin" => fixed!([x], Number(tonumber(x)?.asin())),
+        "_acos" => fixed!([x], Number(tonumber(x)?.acos())),
+        "_atan" => fixed!([x], Number(tonumber(x)?.atan())),
+        "_ln" => fixed!([x], Number(tonumber(x)?.ln())),
+        "_exp" => fixed!([x], Number(tonumber(x)?.exp())),
         "len" => fixed!([i], {
             match i {
-                Value::List(l) => Value::Number(l.borrow().len() as _),
-                l => Value::Number(tostr(l).chars().count() as _),
+                List(l) => Number(l.borrow().len() as _),
+                l => Number(tostr(l).chars().count() as _),
             }
         }),
-        "eq" => frombool(match args {
-            [Value::List(l), Value::List(m)] => l == m,
-            [Value::Number(x), Value::Number(y)] => x == y,
-            [x, y] => tostr(x) == tostr(y),
-            _ => return Err(Error::ValueError(2)),
-        }),
+        "eq" => fixed!([x, y], frombool(eq(x, y))),
         "not" => fixed!([x], frombool(tonumber(x)? == 0f64)),
         "lt" => fixed!([x, y], frombool(tonumber(x)? < tonumber(y)?)),
         "gt" => fixed!([x, y], frombool(tonumber(x)? > tonumber(y)?)),
@@ -203,16 +192,32 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             }
             Value::default()
         }
+        "_printerr" => {
+            for (n, v) in args.iter().enumerate() {
+                if n == args.len() - 1 {
+                    eprintln!("{}", v);
+                } else {
+                    eprint!("{} ", v);
+                }
+            }
+            Value::default()
+        }
+        "_printerrraw" => {
+            for v in args.iter() {
+                eprint!("{}", v)
+            }
+            Value::default()
+        }
         "input" => fixed!([], {
             let mut buffer = String::new();
             std::io::stdin()
                 .read_line(&mut buffer)
                 .map_err(Error::IOError)?;
-            Value::String(Rc::from(buffer))
+            StringVal(Rc::from(buffer))
         }),
         "substr" => fixed!([s, x, y], {
             let (start, stop) = (toindex(x)?, toindex(y)? + 1);
-            Value::String(Rc::from(
+            StringVal(Rc::from(
                 tostr(s)
                     .chars()
                     .skip(start)
@@ -222,7 +227,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
         }),
         "_chr" => fixed!([x], {
             let num = tonumber(x)?.floor() as u32;
-            Value::String(Rc::from(
+            StringVal(Rc::from(
                 char::try_from(num)
                     .map_err(|_| Error::ChrError(num))?
                     .to_string(),
@@ -237,16 +242,16 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             if iter.next().is_some() {
                 return Err(Error::OrdError(Rc::clone(&string)));
             };
-            Value::Number(chr as u32 as f64)
+            Number(chr as u32 as f64)
         }),
         "join" => {
             let mut string = String::new();
             for item in args {
                 write!(&mut string, "{}", item).unwrap();
             }
-            Value::String(Rc::from(string))
+            StringVal(Rc::from(string))
         }
-        "list" => Value::List(Rc::from(RefCell::from(args.to_vec()))),
+        "list" => List(Rc::from(RefCell::from(args.to_vec()))),
         "index" => fixed!([l, i], {
             let list = tolist(l)?;
             let index = toindex(i)?;
@@ -279,6 +284,70 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             *borrow.get_mut(index).ok_or(Error::IndexError(index, len))? = v.clone();
             Value::default()
         }),
+        "_islist" => fixed!([x], frombool(matches!(x, List(_)))),
+        "_clone" => fixed!([x], {
+            match x {
+                List(l) => List(Rc::new(RefCell::new(l.borrow().clone()))),
+                other => other.clone(),
+            }
+        }),
+        "set" => fixed!([l, r], {
+            let l = tostr(l);
+            if l.starts_with('%') {
+                state.locals.insert(l, r.clone());
+            } else {
+                state.globals.insert(l, r.clone());
+            }
+            Value::default()
+        }),
+        "_get" => fixed!([v], {
+            let s = tostr(v);
+            let var = if s.starts_with('%') {
+                state.locals.get(s.as_ref())
+            } else {
+                state.globals.get(s.as_ref())
+            };
+            var.cloned().ok_or(Error::NameError(s))?
+        }),
+        "_globals" => fixed!([], {
+            List(Rc::new(RefCell::new(
+                (state.globals.keys())
+                    .map(|x| StringVal(Rc::clone(x)))
+                    .collect(),
+            )))
+        }),
+        "_locals" => fixed!([], {
+            List(Rc::new(RefCell::new(
+                (state.locals.keys())
+                    .map(|x| StringVal(Rc::clone(x)))
+                    .collect(),
+            )))
+        }),
+        "_error" => fixed!([e], return Err(Error::UserError(tostr(e)))),
+        "call" => fixed!([name], {
+            run::execute_function(state, &("call ".to_string() + &tostr(name)), &[])?
+        }),
+        "_apply" => fixed!([n, a], {
+            run::execute_function(state, tostr(n).as_ref(), tolist(a)?.as_slice())?
+        }),
+        "_rand" => {
+            #[cfg(feature = "fastrand")]
+            let val = fixed!([], Ok(Number(fastrand::f64())));
+            #[cfg(not(feature = "fastrand"))]
+            let val = Err(Error::RandUnavailable);
+            val?
+        }
+        "_random" => {
+            #[cfg(feature = "fastrand")]
+            let val = fixed!([i, j], {
+                let (i, j) = (tonumber(i)?.floor() as i64, tonumber(j)?.floor() as i64);
+                Ok(Number(fastrand::i64(i..=j) as f64))
+            });
+            #[cfg(not(feature = "fastrand"))]
+            let val = Err(Error::RandUnavailable);
+            val?
+        },
+        "end" | "while" | "if" | "define" | "_func" => return Err(Error::MustBeTopLevel),
         name => run::execute_function(state, name, args)?,
     })
 }

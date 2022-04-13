@@ -3,6 +3,8 @@ name = "vurlrs"
 version = "0.0.1"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["fastrand"]
 
 [dependencies]
+fastrand = {version = "1.7.0", optional = true}

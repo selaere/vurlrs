@@ -2,9 +2,11 @@ set list (list 1 2 3)
 
 push [list] 4
 push [list] (add (index [list] (len [list])) 1)
-print [list]
 
-replace [list] 1 0
-push [list] (add (pop [list]) (remove [list] 3))
-insert [list] 4 6
+set list2 (_clone [list])
+replace [list2] 1 0
+push [list2] (add (pop [list2]) (remove [list2] 3))
+insert [list2] 4 6
+
 print [list]
+print [list2]

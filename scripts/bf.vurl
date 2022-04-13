@@ -28,21 +28,23 @@ while (lte [n] (len [code]))
     push [queue] (len [instr])
   end
   if (eq [c] "]")
-    set loc (pop [queue])
-    if (eq [loc] "")
-      print (join "mismatched brackets at character " [n])
-      while 1
-      end
+    if (eq (len [queue]) 0)
+      _error (join "mismatched brackets at character " [n])
+      # print (join "mismatched brackets at character " [n])
+      # while 1
+      # end
     end
+    set loc (pop [queue])
     push [instr] (join "]" [loc])
     replace [instr] [loc] (join "[" (len [instr]))
   end
   set n (add [n] 1)
 end
 if (gt (len [queue]) 0)
-  print "unexpected end of file"
-  while 1
-  end
+  _error "unexpected end of file"
+  # print "unexpected end of file"
+  # while 1
+  # end
 end
 
 # set ascii "␀␁␂␃␄␅␆␇␈␉␊␋␌␍␎␏␐␑␒␓␔␕␖␗␘␙␚␛␜␝␞␟ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~␡"

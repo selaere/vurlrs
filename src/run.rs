@@ -27,7 +27,7 @@ pub enum Value {
 
 impl Default for Value {
     fn default() -> Self {
-        Self::Number(f64::NAN)
+        Self::String(Rc::from(""))
     }
 }
 
@@ -53,7 +53,9 @@ pub enum RunErrorKind {
     Wrap(Box<RunError>),
     Return(Value),
     ValueError(usize),
-    NotImplemented,
+    NotDefined,
+    MustBeTopLevel,
+    UserError(Rc<str>),
     NameError(Rc<str>),
     FuncDefined(Rc<str>),
     IsNotNumber(Value),
@@ -64,6 +66,8 @@ pub enum RunErrorKind {
     PopError,
     OrdError(Rc<str>),
     ChrError(u32),
+    #[allow(dead_code)]
+    RandUnavailable,
 }
 impl fmt::Display for RunErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -76,7 +80,9 @@ impl fmt::Display for RunErrorKind {
                 num,
                 if *num == 1 { "" } else { "s" }
             ),
-            Self::NotImplemented => write!(f, "command not implemented"),
+            Self::NotDefined => write!(f, "command not defined"),
+            Self::MustBeTopLevel => write!(f, "command must be used in top level"),
+            Self::UserError(e) => write!(f, "{}", e),
             Self::NameError(name) => write!(f, "variable [{}] is undefined", name),
             Self::FuncDefined(name) => write!(f, "function {} is already defined", name),
             Self::IsNotNumber(value) => write!(f, "{} is not a number", value),
@@ -89,6 +95,9 @@ impl fmt::Display for RunErrorKind {
             Self::PopError => write!(f, "cannot pop from an empty list"),
             Self::OrdError(s) => write!(f, "string \"{}\" must be one character long", s),
             Self::ChrError(i) => write!(f, "{} is not a valid unicode codepoint", i),
+            Self::RandUnavailable => {
+                write!(f, "vurlrs was compiled without the feature `fastrand`")
+            }
         }
     }
 }
@@ -169,10 +178,7 @@ pub fn execute_function(
     name: &str,
     args: &[Value],
 ) -> Result<Value, RunErrorKind> {
-    let func = state
-        .functions
-        .get(name)
-        .ok_or(RunErrorKind::NotImplemented)?;
+    let func = state.functions.get(name).ok_or(RunErrorKind::NotDefined)?;
     let mut locals = HashMap::from([(
         Rc::from("%args"),
         Value::List(Rc::from(RefCell::from(args.to_vec()))),

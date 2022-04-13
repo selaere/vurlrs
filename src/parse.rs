@@ -1,5 +1,6 @@
 use std::{fmt, iter, str};
 
+#[allow(dead_code)]
 pub fn print_parsed(parsed: &[Option<Command>]) {
     for line in parsed {
         if let Some(cmd) = line {
