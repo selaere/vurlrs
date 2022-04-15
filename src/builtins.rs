@@ -2,6 +2,7 @@ use crate::run::{self, Function, RunErrorKind as Error, State, Value};
 use std::cell::{RefCell, RefMut};
 use std::fmt::Write;
 use std::rc::Rc;
+use std::time::SystemTime;
 use Value::{Lineptr, List, Number, String as StringVal};
 
 fn tonumber(val: &Value) -> Result<f64, Error> {
@@ -61,8 +62,21 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
                     <[&str]>::len(&[$(stringify!($var)),*])
                     // evil trick to get how many arguments there are. rust can probably
                     // optimize this away. i would use ${count} but that's unstable
-                )),
+                ))
             }
+        };
+    }
+    // for numeric commands
+    macro_rules! monad {
+        ($code:expr) => {
+            fixed!([arg1], Number($code(tonumber(arg1)?) as f64))
+        };
+    }
+    macro_rules! dyad {
+        ($code:expr) => {
+            fixed!([arg1, arg2], {
+                Number($code(tonumber(arg1)?, tonumber(arg2)?) as f64)
+            })
         };
     }
 
@@ -126,7 +140,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
                 state.lineno = *lineptr;
                 Value::default()
             }),
-            name => run::execute_function(state, name, args)?,
+            name => run::execute_command(state, name, args)?,
         });
     }
 
@@ -143,21 +157,21 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
                 .reduce(|x, y| Ok(x? * y?))
                 .unwrap_or(Ok(1f64))?,
         ),
-        "sub" => fixed!([x, y], Number(tonumber(x)? - tonumber(y)?)),
-        "div" => fixed!([x, y], Number(tonumber(x)? / tonumber(y)?)),
-        "mod" => fixed!([x, y], Number(tonumber(x)? % tonumber(y)?)),
-        "_pow" => fixed!([x, y], Number(tonumber(x)?.powf(tonumber(y)?))),
-        "_floor" => fixed!([x], Number(tonumber(x)?.floor())),
-        "_round" => fixed!([x], Number(tonumber(x)?.round())),
-        "_sqrt" => fixed!([x], Number(tonumber(x)?.sqrt())),
-        "_sin" => fixed!([x], Number(tonumber(x)?.sin())),
-        "_cos" => fixed!([x], Number(tonumber(x)?.cos())),
-        "_tan" => fixed!([x], Number(tonumber(x)?.tan())),
-        "_asin" => fixed!([x], Number(tonumber(x)?.asin())),
-        "_acos" => fixed!([x], Number(tonumber(x)?.acos())),
-        "_atan" => fixed!([x], Number(tonumber(x)?.atan())),
-        "_ln" => fixed!([x], Number(tonumber(x)?.ln())),
-        "_exp" => fixed!([x], Number(tonumber(x)?.exp())),
+        "sub" => dyad!(<f64 as std::ops::Sub>::sub),
+        "div" => dyad!(<f64 as std::ops::Div>::div),
+        "mod" => dyad!(<f64 as std::ops::Rem>::rem),
+        "_pow" => dyad!(f64::powf),
+        "_floor" => monad!(f64::floor),
+        "_round" => monad!(f64::round),
+        "_sqrt" => monad!(f64::sqrt),
+        "_sin" => monad!(f64::sin),
+        "_cos" => monad!(f64::cos),
+        "_tan" => monad!(f64::tan),
+        "_asin" => monad!(f64::asin),
+        "_acos" => monad!(f64::acos),
+        "_atan" => monad!(f64::atan),
+        "_ln" => monad!(f64::ln),
+        "_exp" => monad!(f64::exp),
         "len" => fixed!([i], {
             match i {
                 List(l) => Number(l.borrow().len() as _),
@@ -165,17 +179,27 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             }
         }),
         "eq" => fixed!([x, y], frombool(eq(x, y))),
-        "not" => fixed!([x], frombool(tonumber(x)? == 0f64)),
-        "lt" => fixed!([x, y], frombool(tonumber(x)? < tonumber(y)?)),
-        "gt" => fixed!([x, y], frombool(tonumber(x)? > tonumber(y)?)),
-        "lte" => fixed!([x, y], frombool(tonumber(x)? <= tonumber(y)?)),
-        "gte" => fixed!([x, y], frombool(tonumber(x)? >= tonumber(y)?)),
-        "or" => fixed!([x, y], {
-            frombool(tonumber(x)? != 0f64 || tonumber(y)? != 0f64)
-        }),
-        "and" => fixed!([x, y], {
-            frombool(tonumber(x)? != 0f64 && tonumber(y)? != 0f64)
-        }),
+        "not" => monad!(|x| (x == 0f64) as i64),
+        "lt" => dyad!(|x, y| (x < y) as i64),
+        "gt" => dyad!(|x, y| (x > y) as i64),
+        "lte" => dyad!(|x, y| (x <= y) as i64),
+        "gte" => dyad!(|x, y| (x >= y) as i64),
+        "or" => {
+            for arg in args {
+                if tonumber(arg)? != 0f64 {
+                    return Ok(Number(1f64));
+                }
+            }
+            Number(0f64)
+        }
+        "and" => {
+            for arg in args {
+                if tonumber(arg)? == 0f64 {
+                    return Ok(Number(0f64));
+                }
+            }
+            Number(1f64)
+        }
         "print" => {
             for (n, v) in args.iter().enumerate() {
                 if n == args.len() - 1 {
@@ -284,7 +308,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             *borrow.get_mut(index).ok_or(Error::IndexError(index, len))? = v.clone();
             Value::default()
         }),
-        "_islist" => fixed!([x], frombool(matches!(x, List(_)))),
+        "_islist" => fixed!([x], Number(matches!(x, List(_)) as i64 as f64)),
         "_clone" => fixed!([x], {
             match x {
                 List(l) => List(Rc::new(RefCell::new(l.borrow().clone()))),
@@ -325,10 +349,25 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
         }),
         "_error" => fixed!([e], return Err(Error::UserError(tostr(e)))),
         "call" => fixed!([name], {
-            run::execute_function(state, &("call ".to_string() + &tostr(name)), &[])?
+            run::execute_command(state, &("call ".to_string() + &tostr(name)), &args[1..])?
         }),
         "_apply" => fixed!([n, a], {
-            run::execute_function(state, tostr(n).as_ref(), tolist(a)?.as_slice())?
+            run::execute_command(state, tostr(n).as_ref(), tolist(a)?.as_slice())?
+        }),
+        "_return" => {
+            return Err(match args {
+                [] => Error::Return(Value::default()),
+                [x] => Error::Return(x.clone()),
+                _ => Error::ValueError(1),
+            })
+        }
+        "_time" => fixed!([], {
+            Number(
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs_f64(),
+            )
         }),
         "_rand" => {
             #[cfg(feature = "fastrand")]
@@ -346,8 +385,8 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             #[cfg(not(feature = "fastrand"))]
             let val = Err(Error::RandUnavailable);
             val?
-        },
+        }
         "end" | "while" | "if" | "define" | "_func" => return Err(Error::MustBeTopLevel),
-        name => run::execute_function(state, name, args)?,
+        _ => return Err(Error::IsNotBuiltIn),
     })
 }

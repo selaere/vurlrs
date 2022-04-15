@@ -2,13 +2,64 @@
 
 **vurlrs** is an interpreter and dialect of the [vurl programming language][esolangs], created by [me] in 2022, for no reason other than to cure my own boredom. 
 
+try running `./vurl fizzbuzz.vurl`, or use the (currently very limited and bad) repl by running it without arguments.
+
 [esolangs]: https://esolangs.org/wiki/Vurl
 [me]: https://github.com/selaere
 
 ## values
 
-vurl has two types of values: _strings_ and _lists_. strings are immutable sequences of unicode characters, and _lists_ are mutable sequences of values. vurl uses the string type for arithmetic and numbers, but vurlrs uses a separate type for these. in practice this makes little difference, since functions that take numbers will convert strings to numbers, and viceversa. one exception is `eq`, check [comparison commands](#comparison).
+vurl has two types of values: _strings_ and _lists_. strings are immutable sequences of unicode characters, and lists are mutable sequences of values. vurl uses the string type for arithmetic and numbers, but vurlrs uses a separate type for these. in practice this makes little difference, since functions that take numbers will convert strings to numbers, and viceversa. one exception is `eq`, check [comparison commands](#comparison).
 
+unquoted literals are numbers if they can be converted to numbers, otherwise they are strings. quoted literals are always literals. variable access looks like `[varname]` where _varname_ cannot contain spaces. the results of commands can be used as expressions by using parentheses: `print (add 1 1)`. additionally, [a few commands](#control-flow) use _code blocks_, which are delimited by `end`.
+
+the commands added by vurlrs start with underscores `_`. 
+
+## functions
+
+one thing vurlrs adds is proper functions. vurl has `define` and `call`, which label and run a code block. vurlrs adds local variables, which are relative to the enclosing `define`. they work exactly like global variables, but their name must start by `%`:
+
+```
+define yell_square
+    set %a (mul [x] [x])
+    # the variable [%a] will not be accessible outside of this function
+    print (join [%a] !!!)
+end
+
+set x 5
+call yell_square
+# outputs 25!!!
+```
+
+you can also call these functions with arguments: they will be as a list in the `%args` variable. we can rewrite our function like so:
+
+```
+define yell_square
+    set %x (index [%args] 1)
+    print (join (mul [x] [x]) !!!)
+end
+
+call yell_square 5
+```
+
+there are also return values. you can add a return value to the function's `end`, or you can use the special command `_return`:
+
+```
+define compute_yelled_square
+    set %x (index [%args] 1)
+end (join (mul [x] [x]) !!!)
+
+print (call yell_square 5)
+```
+
+there is also an alternative command for defining functions, `_func`. it works similar to `define`, but you have to specify a function signature: either a list of named arguments, all of which must start by `%`; or the literal `...`, that doesn't bind any variables (like `define`). its functions don't require `call`, they can be called as commands directly.
+
+```
+_func compute_yelled_square %x
+end (join (mul [x] [x]) !!!)
+
+print (call yell_square)
+```
 ## commands
 
 ### arithmetic
@@ -23,13 +74,13 @@ the dyadic commands `sub`, `div`, `mod`, `_pow` and monadic `_exp`, `_floor`, `_
 
 ### comparison
 
-booleans are the numbers `0` (false) or `1` (true). when a command takes a boolean, it checks if the number is equal to `0`, so `NaN 1 -1 3.14 -inf` are all "truthy"
+booleans are the numbers `0` (false) or `1` (true). when a command takes a boolean, it checks if the number is equal to `0.0`, so `NaN 1 -1 3.14 -inf` are all "truthy"
 
-`eq x y` compares numerically when both of its arguments are numbers. this means that `(eq nan nan)` is false (under IEEE-754, NaN is not equal to itself), but when at least one argument is a string (`(eq nan "nan")` or `(eq inf (substr rainfall 3 5))`) they are compared as strings, returning true.
+`eq x y` compares numerically when both of its arguments are numbers. this means that `(eq nan nan)` is false (under IEEE-754, NaN is not equal to itself), or `(eq 1.0 1)` is true, but when at least one argument is a string (`(eq nan "nan")` or `(eq inf (substr rainfall 3 5))`) they are compared as strings.
 
-`gt`, `gte`, `lt`, `lte` compare two numbers.
+`gt x y`, `gte x y`, `lt x y`, `lte x y` compare two numbers.
 
-`and` and `or` take two booleans, and return another boolean. note that they do no short-circuiting or coalescing.
+`and x y`, `or x y`, `not x` take booleans, and return a boolean. note that they do no short-circuiting or coalescing.
 
 ### strings
 
@@ -43,9 +94,11 @@ lists can be automatically converted to strings, separated by commas and enclose
 
 ### io
 
-`print` outputs its arguments to stdout, separated by spaces, with a trailing newline. `_printraw` outputs its arguments to stdout, without separators or newlines. `_printerr` and `_printerrraw` output to stderr instead.
+`print ...` outputs its arguments to stdout, separated by spaces, with a trailing newline. `_printraw` outputs its arguments to stdout, without separators or newlines. `_printerr` and `_printerrraw` output to stderr instead.
 
 `input` (no arguments) reads one line from stdin.
+
+`_time` gets the current unix time, as seconds.
 
 ### lists
 
@@ -59,20 +112,24 @@ indices start from 0. trying to use index 0, or indexing out of range, will rais
 
 `_islist x` returns `1` if _x_ is a list, otherwise `0`.
 
-`_clone x` clones the value _x_. for strings (and numbers) this is a noop, but for lists it creates a [shallow?] copy
+`_clone x` clones the value _x_. for strings (and numbers) this is a noop, but for lists it creates a shallow copy.
 
 ### control flow
 
-todo
+`while x` and `if x` start code blocks.
+
+`define name` creates a code block that can be called back with `call name [args...]`, and `_func name [args...]` defines a command that can be called with just `name [args...]`. note that these functions must be declared _before_ being used. see [functions](#functions)
+
+`_error x` returns an error with the message _x_
 
 ### randomness
 
-todo
+these commands will only work if the feature `fastrand` is enabled
+
+`_rand` returns a random float between 0 and 1. `_random x y` returns a random integer between x and y, inclusive.
 
 ### variables
 
 `set n v` sets a variable with name _n_. it will be local only if _n_ starts with `%`. it can later be retrieved with `[n]` or `_get n`.
 
-...
-
-etc
+the names of all the locals or globals can be retrieved by calling `_locals` or `_globals` respectively.

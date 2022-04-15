@@ -97,10 +97,7 @@ pub fn parse(code: &str) -> Result<Vec<Option<Command>>, ParseError> {
     let mut stack = Vec::new();
     let mut commands = Vec::<Option<Command>>::new();
     for (lineno, line) in code.split('\n').enumerate() {
-        let line = line.trim();
-        if !line.is_empty() && !line.starts_with('#') {
-            let mut cmd = parse_command(&mut line.trim().chars().peekable(), true)
-                .map_err(|e| ParseError::Lined(lineno, e))?;
+        if let Some(mut cmd) = parse_line(line).map_err(|e| ParseError::Lined(lineno, e))? {
             match cmd.name.as_str() {
                 "if" | "while" | "define" | "_func" => stack.push(lineno),
                 "end" => {
@@ -124,6 +121,16 @@ pub fn parse(code: &str) -> Result<Vec<Option<Command>>, ParseError> {
     Ok(commands)
 }
 
+pub fn parse_line(line: &str) -> Result<Option<Command>, ParseErrorLine> {
+    let line = line.trim();
+    if !line.is_empty() && !line.starts_with('#') {
+        let cmd = parse_command(&mut line.trim().chars().peekable(), true)?;
+        Ok(Some(cmd))
+    } else {
+        Ok(None)
+    }
+}
+
 fn parse_command(
     chars: &mut iter::Peekable<str::Chars>,
     is_top_level: bool,
@@ -133,7 +140,7 @@ fn parse_command(
         match chars.next() {
             Some('(') => args.push(Expr::Command(parse_command(chars, false)?)),
             Some('"') => {
-                let mut s = String::with_capacity(chars.size_hint().0);
+                let mut s = String::new();
                 loop {
                     match chars.next() {
                         Some('"') if matches!(chars.peek(), Some(')' | ' ') | None) => break,
@@ -152,9 +159,8 @@ fn parse_command(
             None => return Err(ParseErrorLine::UnclosedParen),
 
             Some(fst) => {
-                let mut s = String::new();
+                let mut s = String::from(fst);
                 let mut parenlevel = 0;
-                s.push(fst);
                 loop {
                     match chars.peek() {
                         Some('(') => parenlevel += 1,
