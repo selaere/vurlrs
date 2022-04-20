@@ -99,7 +99,7 @@ pub fn parse(code: &str) -> Result<Vec<Option<Command>>, ParseError> {
     for (lineno, line) in code.split('\n').enumerate() {
         if let Some(mut cmd) = parse_line(line).map_err(|e| ParseError::Lined(lineno, e))? {
             match cmd.name.as_str() {
-                "if" | "while" | "define" | "_func" => stack.push(lineno),
+                "if" | "while" | "define" | "_cmd" => stack.push(lineno),
                 "end" => {
                     let startno = stack.pop().ok_or(ParseError::UnexpectedEnd)?;
                     let startline = commands[startno].as_mut().unwrap();

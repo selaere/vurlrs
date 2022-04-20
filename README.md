@@ -2,6 +2,8 @@
 
 **vurlrs** is an interpreter and dialect of the [vurl programming language][esolangs], created by [me] in 2022, for no reason other than to cure my own boredom. 
 
+it adds some new features, like function scoping, command definitions and custom arguments. it adds some commands (those that start with underscores `_`), and may add some functionality to existing functions.
+
 try running `./vurl fizzbuzz.vurl`, or use the (currently very limited and bad) repl by running it without arguments.
 
 [esolangs]: https://esolangs.org/wiki/Vurl
@@ -11,51 +13,53 @@ try running `./vurl fizzbuzz.vurl`, or use the (currently very limited and bad) 
 
 vurl has two types of values: _strings_ and _lists_. strings are immutable sequences of unicode characters, and lists are mutable sequences of values. vurl uses the string type for arithmetic and numbers, but vurlrs uses a separate type for these. in practice this makes little difference, since functions that take numbers will convert strings to numbers, and viceversa. one exception is `eq`, check [comparison commands](#comparison).
 
-unquoted literals are numbers if they can be converted to numbers, otherwise they are strings. quoted literals are always literals. variable access looks like `[varname]` where _varname_ cannot contain spaces. the results of commands can be used as expressions by using parentheses: `print (add 1 1)`. additionally, [a few commands](#control-flow) use _code blocks_, which are delimited by `end`.
+## syntax
 
-the commands added by vurlrs start with underscores `_`. 
+commands have a command name and arguments, separated by spaces (unless they are in quotes): `add 1 2`
+
+unquoted literals are numbers if they can be converted to numbers, otherwise they are strings. quoted literals are always literals. variable access looks like `[varname]` where _varname_ cannot contain spaces. the results of commands can be used as expressions by using parentheses: `print (add 1 1)`. additionally, [a few commands](#control-flow) use _code blocks_, which are delimited by `end`.
 
 ## functions
 
-one thing vurlrs adds is proper functions. vurl has `define` and `call`, which label and run a code block. vurlrs adds local variables, which are relative to the enclosing `define`. they work exactly like global variables, but their name must start by `%`:
+one thing vurlrs adds is proper functions. vurl has `define` and `call`, which label and run a code block. vurlrs adds local variables, which are relative to the outer `define`. they work exactly like global variables, but their name must start by `.`:
 
 ```
 define yell_square
-    set %a (mul [x] [x])
-    # the variable [%a] will not be accessible outside of this function
-    print (join [%a] !!!)
+    set .a (mul [x] [x])
+    # the variable [.a] will not be accessible outside of this function
+    print (join [.a] !!!)
 end
 
 set x 5
 call yell_square
-# outputs 25!!!
+# outputs "25!!!"
 ```
 
-you can also call these functions with arguments: they will be as a list in the `%args` variable. we can rewrite our function like so:
+you can also call these functions with arguments: they will be as a list in the `.args` variable. we can rewrite our function like so:
 
 ```
 define yell_square
-    set %x (index [%args] 1)
+    set .x (index [.args] 1)
     print (join (mul [x] [x]) !!!)
 end
 
 call yell_square 5
 ```
 
-there are also return values. you can add a return value to the function's `end`, or you can use the special command `_return`:
+there are also return values. you can use the special command `_return`, or you can add a return value to the function's `end`:
 
 ```
 define compute_yelled_square
-    set %x (index [%args] 1)
+    set .x (index [.args] 1)
 end (join (mul [x] [x]) !!!)
 
 print (call yell_square 5)
 ```
 
-there is also an alternative command for defining functions, `_func`. it works similar to `define`, but you have to specify a function signature: either a list of named arguments, all of which must start by `%`; or the literal `...`, that doesn't bind any variables (like `define`). its functions don't require `call`, they can be called as commands directly.
+there is also an alternative command for defining functions, `_cmd`. it works similar to `define`, but you have to specify a function signature: either a list of named arguments, all of which must start by `.`; or the literal `...`, that doesn't bind any variables (like `define`). its functions don't require `call`, they can be called as commands directly.
 
 ```
-_func compute_yelled_square %x
+_cmd compute_yelled_square .x
 end (join (mul [x] [x]) !!!)
 
 print (call yell_square)
@@ -118,11 +122,13 @@ indices start from 0. trying to use index 0, or indexing out of range, will rais
 
 `while x` and `if x` start code blocks.
 
-`define name` creates a code block that can be called back with `call name [args...]`, and `_func name [args...]` defines a command that can be called with just `name [args...]`. note that these functions must be declared _before_ being used. see [functions](#functions)
+`define name` creates a code block that can be called back with `call name [args...]`, and `_cmd name [args...]` defines a command that can be called with just `name [args...]`. note that these functions must be declared _before_ being used. see [functions](#functions)
 
-`_error x` returns an error with the message _x_
+`_apply name args` calls command _name_ with the argument list _args_.
 
-### randomness
+`_error x` raises an error with the message _x_.
+
+### random number generation
 
 these commands will only work if the feature `fastrand` is enabled
 
@@ -130,6 +136,6 @@ these commands will only work if the feature `fastrand` is enabled
 
 ### variables
 
-`set n v` sets a variable with name _n_. it will be local only if _n_ starts with `%`. it can later be retrieved with `[n]` or `_get n`.
+`set n v` sets a variable with name _n_. it will be local only if _n_ starts with `.`. it can later be retrieved with `[n]` or `_get n`.
 
 the names of all the locals or globals can be retrieved by calling `_locals` or `_globals` respectively.

@@ -6,8 +6,8 @@ use std::{cell::RefCell, collections::HashMap, error::Error, fmt, rc::Rc};
 pub struct State<'a> {
     pub globals: &'a mut HashMap<Rc<str>, Value>,
     pub locals: &'a mut HashMap<Rc<str>, Value>,
-    pub lineno: usize,
     pub functions: &'a mut HashMap<Rc<str>, Function>,
+    pub lineno: usize,
     pub lines: &'a [Option<Command>],
 }
 
@@ -22,6 +22,8 @@ pub enum Value {
     String(Rc<str>),
     List(Rc<RefCell<Vec<Value>>>),
     Number(f64),
+    // not a real value. used in `end` to point to the start of the block, and in 
+    // `while|if|define|_cmd` to point to the end
     Lineptr(usize),
 }
 
@@ -52,7 +54,7 @@ impl Error for RunError {}
 pub enum RunErrorKind {
     Wrap(Box<RunError>),
     Return(Value),
-    IsNotBuiltIn,   // internal, used by execute_commands, should not be propagated
+    IsNotBuiltIn, // internal, used by execute_commands, should not be propagated
     ValueError(usize),
     NotDefined,
     MustBeTopLevel,
@@ -134,16 +136,16 @@ pub fn evaluate(state: &mut State, expr: &Expr) -> Result<Value, RunError> {
             let args = (args.iter())
                 .map(|x| evaluate(state, x))
                 .collect::<Result<Vec<Value>, _>>()?;
-                execute_command(state, name, &args[..]).map_err(|x| RunError {
-                    line: state.lineno,
-                    function: Rc::from(name.as_str()),
-                    inner: x,
-                })
+            execute_command(state, name, &args[..]).map_err(|x| RunError {
+                line: state.lineno,
+                function: Rc::from(name.as_str()),
+                inner: x,
+            })
         }
         Expr::Literal(s) => Ok(Value::String(Rc::from(s.as_str()))),
         Expr::Number(n) => Ok(Value::Number(*n)),
         Expr::Variable(s) => {
-            let var = if s.starts_with('%') {
+            let var = if s.starts_with('.') {
                 state.locals.get(s.as_str())
             } else {
                 state.globals.get(s.as_str())
@@ -186,11 +188,11 @@ pub fn execute_command(
 ) -> Result<Value, RunErrorKind> {
     match builtins::builtins(state, name, args) {
         Err(RunErrorKind::IsNotBuiltIn) => (), // continue
-        v => return v
+        v => return v,
     }
     let func = state.functions.get(name).ok_or(RunErrorKind::NotDefined)?;
     let mut locals = HashMap::from([(
-        Rc::from("%args"),
+        Rc::from(".args"),
         Value::List(Rc::from(RefCell::from(args.to_vec()))),
     )]);
     if let Some(fargs) = &func.arguments {

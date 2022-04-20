@@ -1,8 +1,8 @@
-_func signum %n
-    if (gt [%n] 0)
+_cmd signum .n
+    if (gt [.n] 0)
         _return 1
     end
-    if (lt [%n] 0)
+    if (lt [.n] 0)
         _return -1
     end
 end 0

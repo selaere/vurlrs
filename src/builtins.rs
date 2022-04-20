@@ -80,10 +80,12 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
         };
     }
 
+    // --- code block commands ---
+
     if let Some(Lineptr(lineptr)) = args.last() {
         args = &args[..args.len() - 1];
         return Ok(match name {
-            "end _func" | "end define" => match args {
+            "end _cmd" | "end define" => match args {
                 [] => return Err(Error::Return(Value::default())),
                 [v] => return Err(Error::Return(v.clone())),
                 _ => return Err(Error::ValueError(1)),
@@ -99,7 +101,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
                 }
                 Value::default()
             }),
-            "_func" => {
+            "_cmd" => {
                 if args.len() <= 1 {
                     return Err(Error::ValueError(1));
                 }
@@ -143,6 +145,8 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             name => run::execute_command(state, name, args)?,
         });
     }
+
+    // --- normal commands ---
 
     Ok(match name {
         "add" => Number(
@@ -317,7 +321,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
         }),
         "set" => fixed!([l, r], {
             let l = tostr(l);
-            if l.starts_with('%') {
+            if l.starts_with('.') {
                 state.locals.insert(l, r.clone());
             } else {
                 state.globals.insert(l, r.clone());
@@ -326,7 +330,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
         }),
         "_get" => fixed!([v], {
             let s = tostr(v);
-            let var = if s.starts_with('%') {
+            let var = if s.starts_with('.') {
                 state.locals.get(s.as_ref())
             } else {
                 state.globals.get(s.as_ref())
@@ -386,7 +390,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             let val = Err(Error::RandUnavailable);
             val?
         }
-        "end" | "while" | "if" | "define" | "_func" => return Err(Error::MustBeTopLevel),
+        "end" | "while" | "if" | "define" | "_cmd" => return Err(Error::MustBeTopLevel),
         _ => return Err(Error::IsNotBuiltIn),
     })
 }
