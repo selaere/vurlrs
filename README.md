@@ -1,8 +1,8 @@
 # vurlrs
 
-**vurlrs** is an interpreter and dialect of the [vurl programming language][esolangs] written in rust by [me] in 2022, for no reason other than to cure my own boredom. 
+**vurlrs** is an interpreter and dialect of the [vurl programming language][esolangs] written in rust(🚀🚀) by [me] in 2022, for no reason other than to cure my own boredom. 
 
-it adds some new features, like function scoping, command definitions and function arguments. it adds some commands (those that start with underscores `_`), and adds some functionality to some existing commands.
+it adds some new features, like function scoping, command definitions and function arguments. it adds some commands (that start with underscores `_`), and adds some functionality to some existing commands.
 
 try running `./vurl fizzbuzz.vurl`, or use the (currently very limited and bad) repl by running it without arguments.
 
