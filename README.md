@@ -102,7 +102,7 @@ lists can be automatically converted to strings, separated by commas and enclose
 
 `len x` gets the length of a list, or the length in characters of a string.
 
-indices start from 0. trying to use index 0, or indexing out of range, will raise an error.
+indices start from 1. trying to use index 0, or indexing out of range, will error.
 
 `index l i`, `push l v`, `pop l`, `insert l i v`, `remove l i`, `replace l i v` take a reference to _l_ and mutate it.
 
