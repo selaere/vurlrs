@@ -11,7 +11,7 @@ try running `./vurl fizzbuzz.vurl`, or use the (currently very limited and bad) 
 
 ## values
 
-vurl has two types of values: _strings_ and _lists_. strings are immutable sequences of unicode characters, and lists are mutable sequences of values. vurl uses the string type for numbers, but vurlrs uses a different float type. in practice this makes almost no difference, since functions that take numbers will convert strings to numbers, and viceversa. one exception is `eq`, check [comparison commands](#comparison).
+vurl has two types of values: _strings_ and _lists_. strings are immutable sequences of unicode characters, and lists are mutable sequences of values. vurl uses the string type for numbers, but vurlrs uses a separate float type. in practice this makes almost no difference, since functions that take numbers will convert strings to numbers, and viceversa. the exception is `eq`, check [comparison commands](#comparison).
 
 ## syntax
 
@@ -96,14 +96,6 @@ lists can be automatically converted to strings, separated by commas and enclose
 
 `_ord s` returns the unicode codepoint of a single-character string _s_. `_chr n` returns a single-character string with the unicode codepoint _n_.
 
-### io
-
-`print ...` outputs its arguments to stdout, separated by spaces, with a trailing newline. `_printraw` outputs its arguments to stdout, without separators or newlines. `_printerr` and `_printerrraw` output to stderr instead.
-
-`input` (no arguments) reads one line from stdin.
-
-`_time` gets the current unix time, as seconds.
-
 ### lists
 
 `list ...` makes a list with its arguments.
@@ -128,14 +120,22 @@ indices start from 0. trying to use index 0, or indexing out of range, will rais
 
 `_error x` raises an error with the message _x_.
 
-### random number generation
-
-these commands will only work if the feature `fastrand` is enabled
-
-`_rand` returns a random float between 0 and 1. `_random x y` returns a random integer between x and y, inclusive.
-
 ### variables
 
 `set n v` sets a variable with name _n_. it will be local only if _n_ starts with `.`. it can later be retrieved with `[n]` or `_get n`.
 
 the names of all the locals or globals can be retrieved by calling `_locals` or `_globals` respectively.
+
+### io
+
+`print ...` outputs its arguments to stdout, separated by spaces, with a trailing newline. `_printraw` outputs its arguments to stdout, without separators or newlines. `_printerr` and `_printerrraw` output to stderr instead.
+
+`input` (no arguments) reads one line from stdin.
+
+`_time` gets the current unix time, as seconds.
+
+### random number generation
+
+these commands will only work if the feature `fastrand` is enabled
+
+`_rand` returns a random float between 0 and 1. `_random x y` returns a random integer between x and y, inclusive.
