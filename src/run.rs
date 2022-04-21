@@ -22,7 +22,7 @@ pub enum Value {
     String(Rc<str>),
     List(Rc<RefCell<Vec<Value>>>),
     Number(f64),
-    // not a real value. used in `end` to point to the start of the block, and in 
+    // not a real value. used in `end` to point to the start of the block, and in
     // `while|if|define|_cmd` to point to the end
     Lineptr(usize),
 }
@@ -52,9 +52,9 @@ impl Error for RunError {}
 
 #[derive(Debug)]
 pub enum RunErrorKind {
-    Wrap(Box<RunError>),
-    Return(Value),
-    IsNotBuiltIn, // internal, used by execute_commands, should not be propagated
+    Wrap(Box<RunError>), // wraps another error. this means good backtraces
+    Return(Value),       // returning is an error, obviously
+    IsNotBuiltIn,        // internal, used by execute_commands, should not be propagated
     ValueError(usize),
     NotDefined,
     MustBeTopLevel,
@@ -152,7 +152,7 @@ pub fn evaluate(state: &mut State, expr: &Expr) -> Result<Value, RunError> {
             };
             var.cloned().ok_or_else(|| RunError {
                 line: state.lineno,
-                function: Rc::from("n/a"),
+                function: Rc::from("[]"),
                 inner: RunErrorKind::NameError(Rc::from(s.as_str())),
             })
         }

@@ -1,4 +1,4 @@
-use crate::run::{self, Function, RunErrorKind as Error, State, Value};
+use crate::run::{execute_command, Function, RunErrorKind as Error, State, Value};
 use std::cell::{RefCell, RefMut};
 use std::fmt::Write;
 use std::rc::Rc;
@@ -142,7 +142,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
                 state.lineno = *lineptr;
                 Value::default()
             }),
-            name => run::execute_command(state, name, args)?,
+            name => execute_command(state, name, args)?,
         });
     }
 
@@ -284,7 +284,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             let list = tolist(l)?;
             let index = toindex(i)?;
             list.get(index)
-                .ok_or_else(|| Error::IndexError(index, list.len()))?
+                .ok_or(Error::IndexError(index, list.len()))?
                 .clone()
         }),
         "push" => fixed!([l, v], {
@@ -353,10 +353,10 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
         }),
         "_error" => fixed!([e], return Err(Error::UserError(tostr(e)))),
         "call" => fixed!([name], {
-            run::execute_command(state, &("call ".to_string() + &tostr(name)), &args[1..])?
+            execute_command(state, &("call ".to_string() + &tostr(name)), &args[1..])?
         }),
         "_apply" => fixed!([n, a], {
-            run::execute_command(state, tostr(n).as_ref(), tolist(a)?.as_slice())?
+            execute_command(state, tostr(n).as_ref(), tolist(a)?.as_slice())?
         }),
         "_return" => {
             return Err(match args {

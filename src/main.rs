@@ -1,12 +1,12 @@
-use std::{collections::HashMap, env, fs, io};
+use std::collections::HashMap;
 
 mod builtins;
 mod parse;
 mod run;
 
 fn main() {
-    if let Some(path) = env::args().nth(1) {
-        let code = fs::read_to_string(path).expect("error while opening file");
+    if let Some(path) = std::env::args().nth(1) {
+        let code = std::fs::read_to_string(path).expect("error while opening file");
         let parsed = parse::parse(&code).expect("parsing error");
         // parse::print_parsed(&parsed);
         // println!("---");
@@ -19,7 +19,7 @@ fn main() {
 }
 
 fn repl() {
-    let stdin = io::stdin();
+    let stdin = std::io::stdin();
     println!("welcome to vurlrs repl. do `quit` to quit.\nnote: you cannot use code blocks yet");
     let lines = Vec::new();
     let mut globals = HashMap::new();
@@ -27,9 +27,13 @@ fn repl() {
     let mut functions = HashMap::new();
     loop {
         print!(">>> ");
-        let _ = std::io::Write::flush(&mut io::stdout());
+        let _ = std::io::Write::flush(&mut std::io::stdout());
         let mut buf = String::new();
         stdin.read_line(&mut buf).expect("error reading from stdin");
+        let line = buf.trim();
+        if line.starts_with('[') && line.ends_with(']') && !line.contains(' ') {
+            buf = String::from("print ") + line;
+        }
         match parse::parse_line(&buf) {
             Err(x) => {
                 eprintln!("parsing error: {}", x);
@@ -56,6 +60,6 @@ fn repl() {
                     Ok(val) => println!("{}", val),
                 }
             }
-        } 
+        }
     }
 }

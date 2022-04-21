@@ -1,8 +1,8 @@
 # vurlrs
 
-**vurlrs** is an interpreter and dialect of the [vurl programming language][esolangs], created by [me] in 2022, for no reason other than to cure my own boredom. 
+**vurlrs** is an interpreter and dialect of the [vurl programming language][esolangs] written in rust by [me] in 2022, for no reason other than to cure my own boredom. 
 
-it adds some new features, like function scoping, command definitions and custom arguments. it adds some commands (those that start with underscores `_`), and may add some functionality to existing functions.
+it adds some new features, like function scoping, command definitions and function arguments. it adds some commands (those that start with underscores `_`), and adds some functionality to some existing commands.
 
 try running `./vurl fizzbuzz.vurl`, or use the (currently very limited and bad) repl by running it without arguments.
 
@@ -11,11 +11,11 @@ try running `./vurl fizzbuzz.vurl`, or use the (currently very limited and bad) 
 
 ## values
 
-vurl has two types of values: _strings_ and _lists_. strings are immutable sequences of unicode characters, and lists are mutable sequences of values. vurl uses the string type for arithmetic and numbers, but vurlrs uses a separate type for these. in practice this makes little difference, since functions that take numbers will convert strings to numbers, and viceversa. one exception is `eq`, check [comparison commands](#comparison).
+vurl has two types of values: _strings_ and _lists_. strings are immutable sequences of unicode characters, and lists are mutable sequences of values. vurl uses the string type for numbers, but vurlrs uses a different float type. in practice this makes almost no difference, since functions that take numbers will convert strings to numbers, and viceversa. one exception is `eq`, check [comparison commands](#comparison).
 
 ## syntax
 
-commands have a command name and arguments, separated by spaces (unless they are in quotes): `add 1 2`
+vurlrs is parsed line by line, and each line can be a _command_, a comment `# ...`, or empty. commands have a command name and arguments, separated by spaces (unless they are in quotes): `add 1 2`
 
 unquoted literals are numbers if they can be converted to numbers, otherwise they are strings. quoted literals are always literals. variable access looks like `[varname]` where _varname_ cannot contain spaces. the results of commands can be used as expressions by using parentheses: `print (add 1 1)`. additionally, [a few commands](#control-flow) use _code blocks_, which are delimited by `end`.
 
@@ -70,7 +70,7 @@ print (call yell_square)
 
 these commands [convert] their arguments to numbers before running.
 
-`add` and `mul` are variadic, and work with any number of arguments. when provided with no arguments, they return `0` and `1` respectively.
+`add ...` and `mul ...` are variadic, and work with any number of arguments. when provided with no arguments, they return `0` and `1` respectively.
 
 the dyadic commands `sub`, `div`, `mod`, `_pow` and monadic `_exp`, `_floor`, `_round`, `_sqrt`, `_ln`, `_sin`, `_cos`, `_tan`, `_asin`, `_acos`, `_atan` do exactly what you'd expect.
 
@@ -84,13 +84,13 @@ booleans are the numbers `0` (false) or `1` (true). when a command takes a boole
 
 `gt x y`, `gte x y`, `lt x y`, `lte x y` compare two numbers.
 
-`and x y`, `or x y`, `not x` take booleans, and return a boolean. note that they do no short-circuiting or coalescing.
+`and ...`, `or ...`, `not x` take booleans, and return a boolean. they do no short-circuiting or coalescing.
 
 ### strings
 
 lists can be automatically converted to strings, separated by commas and enclosed in parentheses: `print (list a b c (list d e) f)` prints out `(a,b,c,(d,e),f)`.
 
-`join` is variadic; and it concatenates multiple values, converting them to strings if necessary. if provided with no arguments it returns an empty string (`""`)
+`join ...` is variadic; and it concatenates multiple values, converting them to strings if necessary. if provided with no arguments it returns an empty string (`""`)
 
 `substr s start stop` returns a substring of _s_, from the index _start_ to _stop_ (inclusive), where _start_ ≤ _stop_. indices start from 1.
 
@@ -122,7 +122,7 @@ indices start from 0. trying to use index 0, or indexing out of range, will rais
 
 `while x` and `if x` start code blocks.
 
-`define name` creates a code block that can be called back with `call name [args...]`, and `_cmd name [args...]` defines a command that can be called with just `name [args...]`. note that these functions must be declared _before_ being used. see [functions](#functions)
+`define name` creates a code block that can be called back with `call name [args...]`, and `_cmd name [args...]` defines a command that can be called with just `name [args...]`. note that these must be declared _before_ being used. see [functions](#functions)
 
 `_apply name args` calls command _name_ with the argument list _args_.
 
