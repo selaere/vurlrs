@@ -40,7 +40,7 @@ you can also call these functions with arguments: they will be as a list in the 
 ```
 define yell_square
     set .x (index [.args] 1)
-    print (join (mul [x] [x]) !!!)
+    print (join (mul [.x] [.x]) !!!)
 end
 
 call yell_square 5
@@ -51,18 +51,18 @@ there are also return values. you can use the special command `_return`, or you 
 ```
 define compute_yelled_square
     set .x (index [.args] 1)
-end (join (mul [x] [x]) !!!)
+end (join (mul [.x] [.x]) !!!)
 
-print (call yell_square 5)
+print (call compute_yelled_square 5)
 ```
 
 there is also an alternative command for defining functions, `_cmd`. it works similar to `define`, but you have to specify a function signature: either a list of named arguments, all of which must start by `.`; or the literal `...`, that doesn't bind any variables (like `define`). its functions don't require `call`, they can be called as commands directly.
 
 ```
 _cmd compute_yelled_square .x
-end (join (mul [x] [x]) !!!)
+end (join (mul [.x] [.x]) !!!)
 
-print (call yell_square)
+print (compute_yelled_square 5)
 ```
 ## commands
 

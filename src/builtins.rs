@@ -352,9 +352,11 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             )))
         }),
         "_error" => fixed!([e], return Err(Error::UserError(tostr(e)))),
-        "call" => fixed!([name], {
-            execute_command(state, &("call ".to_string() + &tostr(name)), &args[1..])?
-        }),
+        "call" => execute_command(
+            state,
+            &("call ".to_string() + &tostr(args.get(0).ok_or(Error::ValueError(1))?)),
+            &args[1..],
+        )?,
         "_apply" => fixed!([n, a], {
             execute_command(state, tostr(n).as_ref(), tolist(a)?.as_slice())?
         }),
