@@ -5,38 +5,41 @@ use std::rc::Rc;
 use std::time::SystemTime;
 use Value::{Lineptr, List, Number, String as StringVal};
 
-fn tonumber(val: &Value) -> Result<f64, Error> {
-    match &val {
-        StringVal(s) => s
-            .parse::<f64>()
-            .map_err(|_| Error::IsNotNumber(val.clone())),
-        List(_) => Err(Error::IsNotNumber(val.clone())),
-        Number(n) => Ok(*n),
-        Lineptr(_) => panic!(),
-    }
-}
-
-fn tostr(val: &Value) -> Rc<str> {
-    match val {
-        StringVal(s) => Rc::clone(s),
-        other => Rc::from(format!("{}", other).as_str()),
-    }
-}
-
 fn frombool(boole: bool) -> Value {
     Number(boole as i32 as f64)
 }
 
-fn toindex(val: &Value) -> Result<usize, Error> {
-    (tonumber(val)?.floor() as usize)
-        .checked_sub(1)
-        .ok_or(Error::ZeroIndex)
-}
+impl Value {
+    /// converts the value to a number
+    fn tonum(&self) -> Result<f64, Error> {
+        match &self {
+            StringVal(s) => s
+                .parse::<f64>()
+                .map_err(|_| Error::IsNotNumber(self.clone())),
+            List(_) => Err(Error::IsNotNumber(self.clone())),
+            Number(n) => Ok(*n),
+            Lineptr(_) => panic!(),
+        }
+    }
 
-fn tolist(val: &Value) -> Result<RefMut<Vec<Value>>, Error> {
-    match val {
-        List(l) => Ok(l.borrow_mut()),
-        _ => Err(Error::IsNotList(val.clone())),
+    fn tostr(&self) -> Rc<str> {
+        match self {
+            StringVal(s) => Rc::clone(s),
+            other => Rc::from(format!("{}", other).as_str()),
+        }
+    }
+
+    fn toindex(&self) -> Result<usize, Error> {
+        (self.tonum()?.floor() as usize)
+            .checked_sub(1)
+            .ok_or(Error::ZeroIndex)
+    }
+
+    fn tolist(&self) -> Result<RefMut<Vec<Value>>, Error> {
+        match self {
+            List(l) => Ok(l.borrow_mut()),
+            _ => Err(Error::IsNotList(self.clone())),
+        }
     }
 }
 
@@ -47,7 +50,7 @@ fn eq(a: &Value, b: &Value) -> bool {
             l.iter().zip(m.iter()).all(|(x, y)| eq(x, y))
         }
         [Number(x), Number(y)] => x == y,
-        [x, y] => tostr(x) == tostr(y),
+        [x, y] => x.tostr() == y.tostr(),
     }
 }
 
@@ -69,13 +72,13 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
     // for numeric commands
     macro_rules! monad {
         ($code:expr) => {
-            fixed!([arg1], Number($code(tonumber(arg1)?) as f64))
+            fixed!([arg1], Number($code(arg1.tonum()?) as f64))
         };
     }
     macro_rules! dyad {
         ($code:expr) => {
             fixed!([arg1, arg2], {
-                Number($code(tonumber(arg1)?, tonumber(arg2)?) as f64)
+                Number($code(arg1.tonum()?, arg2.tonum()?) as f64)
             })
         };
     }
@@ -96,7 +99,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             }),
             "end if" => fixed!([], Value::default()),
             "if" | "while" => fixed!([cond], {
-                if tonumber(cond)? == 0f64 {
+                if cond.tonum()? == 0f64 {
                     state.lineno = *lineptr;
                 }
                 Value::default()
@@ -106,14 +109,14 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
                     return Err(Error::ValueError(1));
                 }
                 let name = &args[0];
-                let arguments = &args[1..].iter().map(tostr).collect::<Vec<_>>();
+                let arguments = &args[1..].iter().map(Value::tostr).collect::<Vec<_>>();
                 let arguments = arguments
                     .first()
                     .map_or(false, |x| !str::eq(x, "...")) // ?????
                     .then(|| Rc::from(&arguments[..]));
                 if (state.functions)
                     .insert(
-                        tostr(name),
+                        name.tostr(),
                         Function {
                             lineno: state.lineno + 1,
                             arguments,
@@ -121,7 +124,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
                     )
                     .is_some()
                 {
-                    return Err(Error::FuncDefined(tostr(name)));
+                    return Err(Error::FuncDefined(name.tostr()));
                 }
                 state.lineno = *lineptr;
                 Value::default()
@@ -129,7 +132,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             "define" => fixed!([name], {
                 if (state.functions)
                     .insert(
-                        Rc::from("call ".to_string() + &tostr(name)),
+                        Rc::from("call ".to_string() + &name.tostr()),
                         Function {
                             lineno: state.lineno + 1,
                             arguments: None,
@@ -137,7 +140,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
                     )
                     .is_some()
                 {
-                    return Err(Error::FuncDefined(tostr(name)));
+                    return Err(Error::FuncDefined(name.tostr()));
                 };
                 state.lineno = *lineptr;
                 Value::default()
@@ -151,13 +154,13 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
     Ok(match name {
         "add" => Number(
             args.iter()
-                .map(tonumber)
+                .map(Value::tonum)
                 .reduce(|x, y| Ok(x? + y?))
                 .unwrap_or(Ok(0f64))?,
         ),
         "mul" => Number(
             args.iter()
-                .map(tonumber)
+                .map(Value::tonum)
                 .reduce(|x, y| Ok(x? * y?))
                 .unwrap_or(Ok(1f64))?,
         ),
@@ -179,7 +182,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
         "len" => fixed!([i], {
             match i {
                 List(l) => Number(l.borrow().len() as _),
-                l => Number(tostr(l).chars().count() as _),
+                l => Number(l.tostr().chars().count() as _),
             }
         }),
         "eq" => fixed!([x, y], frombool(eq(x, y))),
@@ -190,7 +193,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
         "gte" => dyad!(|x, y| (x >= y) as i64),
         "or" => {
             for arg in args {
-                if tonumber(arg)? != 0f64 {
+                if arg.tonum()? != 0f64 {
                     return Ok(Number(1f64));
                 }
             }
@@ -198,7 +201,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
         }
         "and" => {
             for arg in args {
-                if tonumber(arg)? == 0f64 {
+                if arg.tonum()? == 0f64 {
                     return Ok(Number(0f64));
                 }
             }
@@ -244,9 +247,9 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             StringVal(Rc::from(buffer))
         }),
         "substr" => fixed!([s, x, y], {
-            let (start, stop) = (toindex(x)?, toindex(y)? + 1);
+            let (start, stop) = (x.toindex()?, y.toindex()? + 1);
             StringVal(Rc::from(
-                tostr(s)
+                s.tostr()
                     .chars()
                     .skip(start)
                     .take(stop.saturating_sub(start))
@@ -254,7 +257,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             ))
         }),
         "_chr" => fixed!([x], {
-            let num = tonumber(x)?.floor() as u32;
+            let num = x.tonum()?.floor() as u32;
             StringVal(Rc::from(
                 char::try_from(num)
                     .map_err(|_| Error::ChrError(num))?
@@ -262,7 +265,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             ))
         }),
         "_ord" => fixed!([x], {
-            let string = tostr(x);
+            let string = x.tostr();
             let mut iter = string.chars();
             let chr = iter
                 .next()
@@ -281,33 +284,33 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
         }
         "list" => List(Rc::from(RefCell::from(args.to_vec()))),
         "index" => fixed!([l, i], {
-            let list = tolist(l)?;
-            let index = toindex(i)?;
+            let list = l.tolist()?;
+            let index = i.toindex()?;
             list.get(index)
                 .ok_or(Error::IndexError(index, list.len()))?
                 .clone()
         }),
         "push" => fixed!([l, v], {
-            let mut borrow = tolist(l)?;
+            let mut borrow = l.tolist()?;
             borrow.push(v.clone());
             Value::default()
         }),
-        "pop" => fixed!([l], tolist(l)?.pop().ok_or(Error::PopError)?),
+        "pop" => fixed!([l], l.tolist()?.pop().ok_or(Error::PopError)?),
         "insert" => fixed!([l, i, v], {
-            let mut borrow = tolist(l)?;
-            let index = borrow.len().min(toindex(i)?);
+            let mut borrow = l.tolist()?;
+            let index = borrow.len().min(i.toindex()?);
             borrow.insert(index, v.clone());
             Value::default()
         }),
         "remove" => fixed!([l, i], {
-            let mut borrow = tolist(l)?;
+            let mut borrow = l.tolist()?;
             let len = borrow.len();
-            let index = len.min(toindex(i)?);
+            let index = len.min(i.toindex()?);
             borrow.remove(index)
         }),
         "replace" => fixed!([l, i, v], {
-            let mut borrow = tolist(l)?;
-            let index = toindex(i)?;
+            let mut borrow = l.tolist()?;
+            let index = i.toindex()?;
             let len = borrow.len();
             *borrow.get_mut(index).ok_or(Error::IndexError(index, len))? = v.clone();
             Value::default()
@@ -320,7 +323,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             }
         }),
         "set" => fixed!([l, r], {
-            let l = tostr(l);
+            let l = l.tostr();
             if l.starts_with('.') {
                 state.locals.insert(l, r.clone());
             } else {
@@ -329,7 +332,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
             Value::default()
         }),
         "_get" => fixed!([v], {
-            let s = tostr(v);
+            let s = v.tostr();
             let var = if s.starts_with('.') {
                 state.locals.get(s.as_ref())
             } else {
@@ -351,14 +354,14 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
                     .collect(),
             )))
         }),
-        "_error" => fixed!([e], return Err(Error::UserError(tostr(e)))),
+        "_error" => fixed!([e], return Err(Error::UserError(e.tostr()))),
         "call" => execute_command(
             state,
-            &("call ".to_string() + &tostr(args.get(0).ok_or(Error::ValueError(1))?)),
+            &("call ".to_string() + &(args.get(0).ok_or(Error::ValueError(1))?).tostr()),
             &args[1..],
         )?,
         "_apply" => fixed!([n, a], {
-            execute_command(state, tostr(n).as_ref(), tolist(a)?.as_slice())?
+            execute_command(state, n.tostr().as_ref(), a.tolist()?.as_slice())?
         }),
         "_return" => {
             return Err(match args {
@@ -385,7 +388,7 @@ pub fn builtins<'a>(state: &'a mut State, name: &str, args: &'a [Value]) -> Resu
         "_random" => {
             #[cfg(feature = "fastrand")]
             let val = fixed!([i, j], {
-                let (i, j) = (tonumber(i)?.floor() as i64, tonumber(j)?.floor() as i64);
+                let (i, j) = (i.tonum()?.floor() as i64, j.tonum()?.floor() as i64);
                 Ok(Number(fastrand::i64(i..=j) as f64))
             });
             #[cfg(not(feature = "fastrand"))]

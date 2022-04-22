@@ -44,7 +44,9 @@ impl fmt::Display for RunError {
         write!(
             f,
             "error (line {}, command {}):\n{}",
-            self.line, self.function, self.inner
+            self.line + 1,
+            self.function,
+            self.inner
         )
     }
 }
@@ -72,6 +74,7 @@ pub enum RunErrorKind {
     #[allow(dead_code)]
     RandUnavailable,
 }
+
 impl fmt::Display for RunErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
